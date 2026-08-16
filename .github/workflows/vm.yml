@@ -10,7 +10,7 @@ on:
       boot_mode:
         description: 'Choose boot type: iso or qcow2'
         required: true
-        default: 'qcow2'
+        default: 'iso'
       source_url:
         description: 'Custom source URL (optional)'
         required: false
@@ -26,7 +26,7 @@ on:
       connection_method:
         description: 'Choose connection method: tailscale or ngrok or bore'
         required: true
-        default: 'bore'
+        default: 'tailscale'
       connection_program:
         description: 'Select program (RDP, VNC, NoMachine)'
         required: true
@@ -42,7 +42,7 @@ on:
       upload_qcow2:
         description: 'Upload QCOW2 file to Mega: yes or no'
         required: true
-        default: 'yes'
+        default: 'no'
 
 permissions:
   contents: read
