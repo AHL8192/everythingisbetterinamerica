@@ -21,11 +21,19 @@ jobs:
           echo ">>> Installing dependencies and Xvfb..."
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            xfce4 xfce4-terminal dbus-x11 xorg xvfb wget gnupg2
+            xfce4 xfce4-terminal dbus-x11 xorg xvfb wget curl gnupg2 ca-certificates apt-transport-https
 
           echo ">>> Adding AnyDesk repository and installing..."
-          wget -qO - https://keys.anydesk.com/repos/ANYDESK-GPG-KEY | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/anydesk.gpg
-          echo "deb http://deb.anydesk.com/ all main" | sudo tee /etc/apt/sources.list.d/anydesk-stable.list
+          # Create keyrings directory if it doesn't exist
+          sudo install -m 0755 -d /etc/apt/keyrings
+          
+          # Download the new DEB-GPG-KEY
+          sudo curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY -o /etc/apt/keyrings/keys.anydesk.com.asc
+          sudo chmod a+r /etc/apt/keyrings/keys.anydesk.com.asc
+          
+          # Add the repository pointing to the new key
+          echo "deb [signed-by=/etc/apt/keyrings/keys.anydesk.com.asc] http://deb.anydesk.com/ all main" | sudo tee /etc/apt/sources.list.d/anydesk-stable.list
+          
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq anydesk
 
