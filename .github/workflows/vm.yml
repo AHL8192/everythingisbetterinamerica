@@ -10,15 +10,15 @@ on:
       boot_mode:
         description: 'Choose boot type: iso or qcow2'
         required: true
-        default: 'iso'
+        default: 'qcow2'
       source_url:
         description: 'Custom source URL (optional)'
         required: false
-        default: 'https://pub.linuxmint.io/stable/22.2/linuxmint-22.2-cinnamon-64bit.iso'
+        default: ''
       vm_name:
         description: 'Name of the system/disk'
         required: true
-        default: 'mint'
+        default: 'Qemu'
       runtime:
         description: 'Runtime duration in minutes (default 350)'
         required: false
@@ -42,7 +42,7 @@ on:
       upload_qcow2:
         description: 'Upload QCOW2 file to Mega: yes or no'
         required: true
-        default: 'no'
+        default: 'yes'
 
 permissions:
   contents: read
@@ -178,7 +178,7 @@ jobs:
           echo "Updating package lists..."
           sudo apt-get update -qq > /dev/null 2>&1
           echo "Installing QEMU + components..."
-          sudo apt-get install -y -qq qemu-system-x86 ovmf novnc websockify wget aria2 curl unzip p7zip-full unrar-free tar python3-pip > /dev/null 2>&1
+          sudo apt-get install -y -qq qemu-system-x86 ovmf novnc websockify wget curl unzip p7zip-full unrar-free tar python3-pip > /dev/null 2>&1
           echo "Installing internetarchive..."
           pip install internetarchive > /dev/null 2>&1
           echo "Cloning badown..."
@@ -304,7 +304,6 @@ jobs:
             FOUND_FILE=$(find . -type f -name "$FILE" | head -n1)
             if [ -f "$FOUND_FILE" ]; then
               sudo mv "$FOUND_FILE" "$FILE_PATH"
-              echo "download succeeded via internet_archive — continue processing"
             else
               echo "Error: No valid file found from archive.org"
               exit 1
@@ -337,34 +336,11 @@ jobs:
             )
             DOWNLOADED=$(ls -t | head -n1)
             sudo mv "$DOWNLOADED" "$FILE_PATH"
-            echo "download succeeded via badown — continue processing"
             
-          else
-            echo "Downloading system file via aria2..."
-            sudo aria2c -x16 -s16 --auto-file-renaming=false --dir="$TMPDIR" --out="$(basename "$FILE_PATH")" "$SRC"
-          fi
-          
-          if [[ -s "$FILE_PATH" ]]; then
-            echo "download succeeded — continue processing"
           else
             echo "Downloading system file via wget..."
             sudo wget -q --user-agent="Mozilla/5.0" --trust-server-names --content-disposition -O "$FILE_PATH" "$SRC"
           fi
-          
-          if [[ -s "$FILE_PATH" ]]; then
-              echo "download succeeded via wget — continue processing"
-          else
-              echo "Downloading system file via curl..."
-              sudo curl -L -A "Mozilla/5.0" -o "$FILE_PATH" "$SRC"
-
-              if [[ -s "$FILE_PATH" ]]; then
-                echo "download succeeded via curl — continue processing"
-              else
-                echo "download failed via both wget and curl"
-                exit 1
-              fi
-          fi
-          
 
           EXT=$(file -b --mime-type "$FILE_PATH")
           if [[ "$EXT" == *"iso"* && "$MODE" == "iso" ]]; then
