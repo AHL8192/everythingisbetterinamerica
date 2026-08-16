@@ -1,0 +1,476 @@
+name: anydesk-windows-latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      audio:
+        description: 'Install VB-Cable Audio Driver (14s)'
+        type: boolean
+        default: true
+      dark:
+        description: 'Dark Mode (7s)'
+        type: boolean
+        default: true
+      store:
+        description: 'Add Microsoft Store (23s)'
+        type: boolean
+        default: true
+      vscode:
+        description: 'Add vscode (1m 19s)'
+        type: boolean
+        default: true
+      media:
+        description: 'Add PotPlayer and AIMP (32s)'
+        type: boolean
+        default: true
+      optimize:
+        description: 'Optimize windows performance (1m 46s)'
+        type: boolean
+        default: true
+      rar:
+        description: 'Add WinRAR (14s)'
+        type: boolean
+        default: true
+      qbit:
+        description: 'Add qbittorrent (9s)'
+        type: boolean
+        default: true
+      office:
+        description: 'Add Microsoft Office (4m 8s)'
+        type: boolean
+        default: true
+      vmware:
+        description: 'Add VMware Workstation Pro (6m 24s)'
+        type: boolean
+        default: false
+      ninite_bool:
+        description: 'Add More Apps - Open https://ninite.com/ to choose your apps.'
+        type: boolean
+        default: false
+      ninite_url:
+        description: 'Give us a direct link to the customized installer from Ninite.'
+        required: false
+        type: string
+
+jobs:
+  run-anydesk:
+    runs-on: windows-latest
+    steps:
+
+
+      - name: 1. (MAIN STEP) Install & Connect Tailscale
+        shell: powershell
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.3-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=gh-runner-${{ github.run_id }}
+          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          "TAILSCALE_IP=$tsIP" | Out-File -Append $env:GITHUB_ENV
+
+      
+      - name: Add VB-Cable Audio Driver
+        shell: powershell
+        if: ${{ inputs.audio }}
+        run: |
+          $url = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
+          $zipPath = "$env:TEMP\VBCABLE_Driver_Pack45.zip"
+          $extractPath = "$env:TEMP\VBCABLE"
+          
+          # 1. Download the ZIP
+          Write-Host "Downloading VB-Cable..."
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          
+          # 2. Extract the ZIP
+          Write-Host "Extracting ZIP..."
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          Set-Location $extractPath
+          
+          # 3. Trust the publisher certificate to prevent Windows Security prompts
+          Write-Host "Trusting VB-Audio signature..."
+          $sig = Get-AuthenticodeSignature ".\VBCABLE_Setup_x64.exe"
+          if ($sig.SignerCertificate) {
+              $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "TrustedPublisher", "LocalMachine"
+              $store.Open("ReadWrite")
+              $store.Add($sig.SignerCertificate)
+              $store.Close()
+              Write-Host "Certificate added to TrustedPublisher."
+          } else {
+              Write-Warning "Could not extract certificate. Installation might hang if Windows prompts for trust."
+          }
+          
+          # 4. Run the installer silently (-i = install, -h = hidden)
+          Write-Host "Installing VB-Cable driver..."
+          $process = Start-Process -FilePath ".\VBCABLE_Setup_x64.exe" -ArgumentList "-i", "-h" -Wait -PassThru
+          
+          if ($process.ExitCode -eq 0) {
+              Write-Host "VB-Cable Installation completed successfully!"
+          } else {
+              Write-Error "Installation exited with code $($process.ExitCode)."
+              exit 1
+          }
+
+
+
+      - name: Light Mode
+        shell: powershell
+        if: ${{ !inputs.dark }}
+        run: |
+          # code
+          # 1. Define direct GitHub URL (MUST be raw.githubusercontent.com link)
+          $url = "https://raw.githubusercontent.com/AHL8192/special-octo-enigma/refs/heads/main/Wallpapers/Light.jpg"
+
+          # 2. Set temporary local save path
+          $outputPath = "$env:TEMP\github_wallpaper.jpg"
+
+          # 3. Download the image
+          Invoke-WebRequest -Uri $url -OutFile $outputPath
+
+          # 4. Define Win32 API signature
+          $code = @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public class Wallpaper {
+              [DllImport("user32.dll", CharSet = CharSet.Auto)]
+              public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+          }
+          "@
+
+          # 5. Compile the C# definition
+          Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+
+          # 6. Apply the wallpaper
+          # 0x0014 = SPI_SETDESKWALLPAPER
+          # 0x03 = SPIF_UPDATEINIFILE (0x01) | SPIF_SENDCHANGE (0x02)
+          [Wallpaper]::SystemParametersInfo(0x0014, 0, $outputPath, 0x03)
+
+
+      - name: Dark Mode
+        shell: powershell
+        if: ${{ inputs.dark }}
+        run: |
+          Set-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'AppsUseLightTheme' -Value 0 -Type Dword
+          Set-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'SystemUsesLightTheme' -Value 0 -Type Dword
+          Stop-Process -Name "explorer" -Force
+
+          # Set Custom Wallpaper
+          # 1. Define direct GitHub URL (MUST be raw.githubusercontent.com link)
+          $url = "https://raw.githubusercontent.com/AHL8192/special-octo-enigma/refs/heads/main/Wallpapers/Dark.jpg"
+
+          # 2. Set temporary local save path
+          $outputPath = "$env:TEMP\github_wallpaper.jpg"
+
+          # 3. Download the image
+          Invoke-WebRequest -Uri $url -OutFile $outputPath
+
+          # 4. Define Win32 API signature
+          $code = @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public class Wallpaper {
+              [DllImport("user32.dll", CharSet = CharSet.Auto)]
+              public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+          }
+          "@
+
+          # 5. Compile the C# definition
+          Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+
+          # 6. Apply the wallpaper
+          # 0x0014 = SPI_SETDESKWALLPAPER
+          # 0x03 = SPIF_UPDATEINIFILE (0x01) | SPIF_SENDCHANGE (0x02)
+          [Wallpaper]::SystemParametersInfo(0x0014, 0, $outputPath, 0x03)
+
+      - name: Add VMware
+        shell: powershell
+        if: ${{ inputs.vmware }}
+        run: |
+          # code
+          # Define variables
+          $url = "https://github.com/AHL8192/special-octo-enigma/releases/download/v1.0.1/OpmaticOceanicVersion1.0.1.exe"
+          $exePath = "$env:TEMP\vmware_installer.exe"
+
+          # 1. Download the Executable
+          Write-Host "Downloading VMware Workstation..." -ForegroundColor Cyan
+          Invoke-WebRequest -Uri $url -OutFile $exePath -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+          # Validate download size (>10MB ensures it's the actual executable, not an error page)
+          if (-not (Test-Path $exePath) -or (Get-Item $exePath).Length -lt 10MB) {
+              Write-Error "Downloaded file is invalid or too small. Check the download link."
+              exit 1
+          }
+
+          # 2. Perform Silent Installation
+          Write-Host "Starting silent installation..." -ForegroundColor Cyan
+          # VMware-specific arguments for a completely silent install, agreeing to the EULA, and disabling telemetry/auto-updates
+          $installArgs = '/s /v"/qn EULAS_AGREED=1 AUTOSOFTWAREUPDATE=0 DATACOLLECTION=0"'
+
+          $process = Start-Process -FilePath $exePath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
+
+          if ($process.ExitCode -eq 0) {
+              Write-Host "VMware Workstation installed successfully." -ForegroundColor Green
+          } elseif ($process.ExitCode -eq 3010) {
+              Write-Host "Installation successful, but a system reboot is required." -ForegroundColor Yellow
+          } else {
+              Write-Warning "Installer completed with exit code: $($process.ExitCode)"
+          }
+
+          # 3. Clean up temporary files
+          Write-Host "Cleaning up temporary files..." -ForegroundColor Cyan
+          Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
+
+          Write-Host "Setup complete!" -ForegroundColor Green
+
+      
+      - name: Add Store
+        shell: powershell
+        if: ${{ inputs.store }}
+        run: |
+          # Trigger Microsoft Store installation
+          Write-Host "Triggering Microsoft Store installation..."
+          wsreset -i
+      
+          # Wait for the installation to finish (max 2 minutes)
+          $timeout = 120
+          $timer = [Diagnostics.Stopwatch]::StartNew()
+          
+          while ($timer.Elapsed.TotalSeconds -lt $timeout) {
+              if (Get-AppxPackage -AllUsers -Name "*Microsoft.WindowsStore*") {
+                  Write-Host "Microsoft Store is successfully installed."
+                  break
+              }
+              Write-Host "Waiting for installation to complete... ($([math]::Round($timer.Elapsed.TotalSeconds))s elapsed)"
+              Start-Sleep -Seconds 5
+          }
+          $timer.Stop()
+      
+
+
+
+      - name: Install vscode
+        shell: powershell
+        if: ${{ inputs.vscode }}
+        run: |
+            winget install --id Microsoft.VisualStudioCode -e --silent --accept-source-agreements --accept-package-agreements
+
+
+      - name: Install PotPlayer and AIMP
+        shell: powershell
+        if: ${{ inputs.media }}
+        run: |
+            winget install --id XP8BSBGQW2DKS0 -e --silent --accept-source-agreements --accept-package-agreements
+            winget install --id 9PCLLLH15SMT -e --silent --accept-source-agreements --accept-package-agreements
+
+      
+      - name: Optimize and Apply OOSU10
+        shell: powershell
+        if: ${{ inputs.optimize }}
+        run: |
+            # Disable Windows Defender Real-time scanning
+            Set-MpPreference -DisableRealtimeMonitoring $true
+            
+            # Disable Windows Search Indexing (WSearch)
+            Stop-Service -Name WSearch -ErrorAction SilentlyContinue
+            Set-Service -Name WSearch -StartupType Disabled -ErrorAction SilentlyContinue
+            
+            # Disable Superfetch/SysMain (unnecessary on ephemeral cloud VMs)
+            Stop-Service -Name SysMain -ErrorAction SilentlyContinue
+            Set-Service -Name SysMain -StartupType Disabled -ErrorAction SilentlyContinue
+            
+            # OOSU STARTED
+            # 1. Define temporary file paths
+            $OOSU_exe = "$env:TEMP\OOSU10.exe"
+            $OOSU_cfg = "$env:TEMP\ooshutup10.cfg"
+            
+            # 2. Download the latest O&O ShutUp10++ executable
+            Invoke-WebRequest -Uri "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe" -OutFile $OOSU_exe
+            
+            # 3. Create the configuration file dynamically (No external dependencies)
+            $oosuConfigContent = @"
+            ############################################################################
+            # This file was created with O&O ShutUp10++
+            # Recommended settings string
+            P001 + P002 + P003 + P004 + P005 + P006 + P008 + P026 + P027 + P028 + P064 + P065 + P066 + P067 + P070 + P069 + P009 - P010 - P015 - P068 - P016 - A001 + A002 + A003 + A004 + A006 + A005 + P007 + P036 + P025 + P033 + P023 + P056 + P057 - P012 - P034 - P013 - P035 - P062 - P063 - P081 - P047 - P019 - P048 - P049 - P020 - P037 - P011 - P038 - P050 - P051 - P018 - P039 - P021 - P040 - P022 - P041 - P014 - P042 - P052 - P053 - P054 - P055 - P029 - P043 - P030 - P044 - P031 - P045 - P032 - P046 - P058 - P059 - P060 - P061 - P024 - S001 + S002 + S003 + S008 - E001 + E002 + E003 + E008 + E007 + E010 + E011 + E012 + E009 - E004 - E005 - E013 - E014 - E006 - Y001 + Y002 + Y003 + Y004 + Y005 + Y006 + Y007 + C012 + C002 + C013 + C007 + C008 + C009 + C010 + C011 + C014 + C015 + L001 + L003 + L004 - L005 - U001 + U004 + U005 + U006 + U007 + W001 + W011 +
+            "@
+            
+            Set-Content -Path $OOSU_cfg -Value $oosuConfigContent
+            
+            # 4. Execute silently and wait for completion
+            Write-Host "Applying O&O ShutUp10 privacy configurations..."
+            Start-Process -FilePath $OOSU_exe -ArgumentList "`"$OOSU_cfg`" /quiet /nosrp" -Wait -NoNewWindow
+            
+            Write-Host "Configurations applied successfully."
+
+      
+      
+      
+      
+    
+
+      - name: Install WinRAR via Chocolatey
+        if: ${{ inputs.rar }}
+        run: |
+          choco install winrar -y
+          "C:\Program Files\WinRAR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+
+      - name: Download and Install qBittorrent to D Drive
+        shell: pwsh
+        if: ${{ inputs.qbit }}
+        run: |
+                # 1. Download
+                $releasesUrl = "https://api.github.com/repos/qbittorrent/qBittorrent/releases/latest"
+                $releaseInfo = Invoke-RestMethod -Uri $releasesUrl
+                
+                # Added 'Select-Object -First 1' to handle multiple x64 installers
+                $installerAsset = $releaseInfo.assets | Where-Object { $_.name -match "x64_setup\.exe$" } | Select-Object -First 1
+                
+                $outputFile = "$env:TEMP\qbittorrent_setup.exe"
+                
+                Write-Host "Downloading qBittorrent from: $($installerAsset.browser_download_url)"
+                Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $outputFile
+                
+                # 2. Install (Using cmd.exe to prevent PowerShell from auto-quoting the /D parameter)
+                Write-Host "Installing qBittorrent silently to D:\Program Files\qBittorrent..."
+                $cmdArgs = "/c `"$outputFile`" /S /D=D:\Program Files\qBittorrent"
+                Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -Wait -NoNewWindow
+                
+                # 3. Verify
+                $qbitPath = "D:\Program Files\qBittorrent\qbittorrent.exe"
+                if (Test-Path $qbitPath) {
+                    Write-Host "Success: qBittorrent installed at $qbitPath"
+                } else {
+                    throw "Failed: qBittorrent executable not found at expected path."
+                }
+
+
+      - name: installing office
+        shell: powershell
+        if: ${{ inputs.office }}
+        run: |
+          $url = 'https://c2rsetup.officeapps.live.com/c2r/download.aspx?ProductreleaseID=O365ProPlusRetail&platform=x64&language=en-us&version=O16GA'
+          $exe = 'OfficeSetup.exe'
+          Write-Host "Downloading OfficeSetup from $url ..."
+          Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+          Write-Host "Downloaded $exe ($(Get-Item $exe).Length) bytes"
+      
+          $cfg = 'configuration.xml'
+          $xml = @'
+          <Configuration>
+            <Add OfficeClientEdition="64">
+              <Product ID="O365ProPlusRetail">
+                <Language ID="en-us" />
+              </Product>
+            </Add>
+            <Display Level="None" AcceptEULA="TRUE" />
+          </Configuration>
+          '@
+          $xml | Out-File -FilePath $cfg -Encoding UTF8
+          Write-Host "Wrote Click-to-Run configuration to $cfg"
+      
+          if (-not (Test-Path $exe)) { throw "Installer not found: $exe" }
+          if (-not (Test-Path $cfg)) { throw "Config not found: $cfg" }
+      
+          Write-Host "Starting silent installation (this can take several minutes)..."
+          $proc = Start-Process -FilePath ".\$exe" -ArgumentList "/configure `"$cfg`"" -Wait -PassThru -NoNewWindow
+          Write-Host "Installer exited with code $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "Office installer failed with exit code $($proc.ExitCode)" }
+          Write-Host "Office installation completed successfully."
+
+      - name: Activating Office
+        if: ${{ inputs.office }}
+        run: |
+          git clone https://github.com/AHL8192/Microsoft-Activation-Scripts.git
+          cd Microsoft-Activation-Scripts
+          .\MAS\Separate-Files-Version\Activators\Ohook_Activation_AIO.cmd
+        shell: powershell
+
+      - name: 2. (MAIN STEP) Official AnyDesk Installation & Logic
+        shell: cmd
+        run: |
+          echo [INFO] Downloading Official AnyDesk.exe...
+          powershell -Command "Invoke-WebRequest -Uri 'https://download.anydesk.com/AnyDesk.exe' -OutFile 'AnyDesk.exe'"
+          
+          echo [INFO] Installing AnyDesk Silently...
+          AnyDesk.exe --install "C:\AnyDesk" --start-with-win --silent
+          
+          echo [INFO] Waiting 20s for installation...
+          powershell -Command "Start-Sleep -Seconds 20"
+          
+          set "adPath=C:\AnyDesk\AnyDesk.exe"
+
+          if not exist "%adPath%" (
+              echo [ERROR] AnyDesk was not found!
+              exit 1
+          )
+
+          :START_ANYDESK
+          echo [INFO] Starting AnyDesk service in background...
+          start "" "%adPath%" --start
+          powershell -Command "Start-Sleep -Seconds 10"
+
+          echo [INFO] Attempting to fetch AnyDesk ID...
+          for /f "delims=" %%i in ('"%adPath%" --get-id') do (
+              set "ID=%%i"
+          )
+
+          if "%ID%"=="" (
+              echo [WARNING] ID is empty, retrying...
+              taskkill /f /im anydesk.exe > nul 2>&1
+              goto START_ANYDESK
+          )
+          if "%ID%"=="0" (
+              echo [WARNING] ID is 0, retrying...
+              taskkill /f /im anydesk.exe > nul 2>&1
+              goto START_ANYDESK
+          )
+          
+          echo [SUCCESS] Valid ID found: %ID%
+          echo [INFO] Setting password for Full Access...
+          echo MR.English2008 | "%adPath%" --set-password _full_access
+          
+          echo ANYDESK_ID=%ID% >> %GITHUB_ENV%
+
+
+
+      - name: Installing Ninite
+        shell: powershell
+        if: ${{ inputs.ninite_bool }}
+        env:
+          NINITE_URL: ${{ inputs.ninite_url }}
+        run: |
+          # Download Ninite Installer
+          if (-not $env:NINITE_URL) {
+              Write-Error "The URL is empty. Please ensure you trigger this workflow manually (Run workflow) and provide the link."
+              exit 1
+          }
+          
+          Write-Host "Downloading Ninite from: $env:NINITE_URL"
+          Invoke-WebRequest -Uri $env:NINITE_URL -OutFile "NiniteInstaller.exe"
+
+          # Launch Ninite (Detached)
+          Write-Host "Starting Ninite installer in the background..."
+          Start-Process -FilePath ".\NiniteInstaller.exe"
+
+          Write-Host "This step executes immediately while Ninite runs in the background."
+
+
+      - name: 3. (MAIN STEP) Final Status & Keep Alive
+        shell: powershell
+        run: |
+          $endTime = (Get-Date).AddHours(6)
+          Write-Host "========================================"
+          Write-Host "ANYDESK READY"
+          Write-Host "ID: $env:ANYDESK_ID"
+          Write-Host "User: runneradmin"
+          Write-Host "Password: MR.English2008"
+          Write-Host "========================================"
+          
+          
+          while ((Get-Date) -lt $endTime) {
+              Write-Host "Online | ID: $env:ANYDESK_ID | $(Get-Date)"
+              Start-Sleep -Seconds 300
+          }
