@@ -130,9 +130,17 @@ jobs:
           IP4=$(tailscale ip -4 | head -n1)
           sudo -u ${VNC_USER} vncserver :1 -geometry 1280x800 -depth 24 -localhost no
 
-          echo "### VNC Linux (B)" >> $GITHUB_STEP_SUMMARY
-          echo "Host: $TS_HOSTNAME" >> $GITHUB_STEP_SUMMARY
-          echo "IPv4: $IP4" >> $GITHUB_STEP_SUMMARY
+          # Print directly to stdout for immediate console log visibility
+          echo "=========================================="
+          echo "          VNC CONNECTION DETAILS          "
+          echo "=========================================="
+          echo "Machine IP + Port : ${IP4}:5901"
+          echo "Username          : ${VNC_USER}"
+          echo "Password          : ${VNC_PASS}"
+          echo "=========================================="
+
+          # Keep step summary output
+          echo "### VNC Linux Details" >> $GITHUB_STEP_SUMMARY
           echo "Connect: $IP4:5901" >> $GITHUB_STEP_SUMMARY
           echo "User: $VNC_USER" >> $GITHUB_STEP_SUMMARY
           echo "Pass: $VNC_PASS" >> $GITHUB_STEP_SUMMARY
