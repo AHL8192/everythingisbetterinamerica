@@ -109,7 +109,7 @@ jobs:
           # Install lightweight desktop and xrdp
           sudo apt-get update
           export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp dbus-x11
           
           # Fix failsafe session error and permission denied errors using sudo tee
           echo "unset SESSION_MANAGER" | sudo tee /home/$U/.xsession > /dev/null
