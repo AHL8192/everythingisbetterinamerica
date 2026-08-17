@@ -1,0 +1,186 @@
+name: Linux VNC via Tailscale (B)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ts_tailnet:
+        description: "Tailscale tailnet (e.g. you@gmail.com)"
+        required: true
+      ts_api_key:
+        description: "Tailscale API key (device admin, no 'Bearer')"
+        required: true
+      ts_authkey:
+        description: "Tailscale auth key (reusable or ephemeral)"
+        required: true
+      gh_api_token:
+        description: "GitHub Personal Access Token (classic; scopes: repo, workflow)"
+        required: true
+      test_mode:
+        description: "Run 5-minute test loop"
+        type: boolean
+        default: false
+      runtime_minutes:
+        description: "Runtime in minutes (max 360; capped to 355)"
+        required: false
+        default: "355"
+      loops:
+        description: "How many handoffs (0 = infinite)"
+        required: false
+        default: "0"
+
+  workflow_run:
+    workflows: ["Linux VNC via Tailscale (A)"]
+    types: [completed]
+
+concurrency:
+  group: tailscale-vnc-singleton
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  VNC_USER: runner
+  VNC_PASS: Bullet@12345
+  TS_HOSTNAME: bullet-linux
+
+jobs:
+  vnc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 370
+    steps:
+      - name: 🔧 Resolve inputs
+        id: cfg
+        run: |
+          TAILNET="${{ inputs.ts_tailnet }}"
+          APIKEY="${{ inputs.ts_api_key }}"
+          AUTHKEY="${{ inputs.ts_authkey }}"
+          PAT="${{ inputs.gh_api_token }}"
+          TEST_MODE="${{ inputs.test_mode }}"
+          RUNTIME="${{ inputs.runtime_minutes }}"
+          LOOPS="${{ inputs.loops }}"
+
+          if [ -z "$TAILNET" ] || [ -z "$APIKEY" ] || [ -z "$AUTHKEY" ] || [ -z "$PAT" ]; then
+            echo "Missing required inputs"; exit 1
+          fi
+
+          RUNTIME=${RUNTIME:-355}
+          if [ "$TEST_MODE" = "true" ]; then RUNTIME=5; fi
+          if [ "$RUNTIME" -lt 6 ] && [ "$TEST_MODE" != "true" ]; then RUNTIME=355; fi
+          if [ "$RUNTIME" -gt 360 ]; then RUNTIME=355; fi
+          
+          LOOPS=${LOOPS:-0}
+          if [ "$LOOPS" -lt 0 ]; then LOOPS=0; fi
+
+          echo "tailnet=$TAILNET" >> $GITHUB_OUTPUT
+          echo "apikey=$APIKEY" >> $GITHUB_OUTPUT
+          echo "authkey=$AUTHKEY" >> $GITHUB_OUTPUT
+          echo "pat=$PAT" >> $GITHUB_OUTPUT
+          echo "runtime=$RUNTIME" >> $GITHUB_OUTPUT
+          echo "loops=$LOOPS" >> $GITHUB_OUTPUT
+          echo "Resolved: test=$TEST_MODE, runtime=$RUNTIME, loops=$LOOPS"
+
+      - name: ⚙️ Install XFCE, VNC & jq
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-terminal dbus-x11 xorg jq curl \
+            tigervnc-standalone-server tigervnc-common tigervnc-tools
+
+          echo "${VNC_USER}:${VNC_PASS}" | sudo chpasswd
+          echo "${VNC_USER} ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/${VNC_USER}
+
+          mkdir -p /home/${VNC_USER}/.vnc
+          echo ${VNC_PASS} | vncpasswd -f > /home/${VNC_USER}/.vnc/passwd
+          chmod 600 /home/${VNC_USER}/.vnc/passwd
+          chown -R ${VNC_USER}:${VNC_USER} /home/${VNC_USER}/.vnc
+
+          echo "startxfce4" > /home/${VNC_USER}/.xsession
+          chown ${VNC_USER}:${VNC_USER} /home/${VNC_USER}/.xsession
+
+      - name: ⚙️ Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sudo sh
+          tailscale version
+
+      - name: 🧹 PURGE any devices containing 'bullet' (startup)
+        run: |
+          TN_ENCODED=$(jq -Rr @uri <<< "${{ steps.cfg.outputs.tailnet }}")
+          API_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ENCODED/devices"
+          
+          DEVICES=$(curl -s -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "$API_URL")
+          echo "$DEVICES" | jq -r '.devices[]? | select(.name | ascii_downcase | contains("bullet")) | .id' | while read ID; do
+            if [ -n "$ID" ]; then
+              curl -s -X DELETE -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/device/$ID" > /dev/null
+              echo "Deleted at start: $ID"
+            fi
+          done
+
+      - name: 🔗 Tailscale up + Start VNC
+        id: up
+        run: |
+          sudo tailscale up --authkey "${{ steps.cfg.outputs.authkey }}" --hostname "${TS_HOSTNAME}" --accept-routes --accept-dns=false
+          sleep 2
+          
+          IP4=$(tailscale ip -4 | head -n1)
+          sudo -u ${VNC_USER} vncserver :1 -geometry 1280x800 -depth 24 -localhost no
+
+          echo "### VNC Linux (B)" >> $GITHUB_STEP_SUMMARY
+          echo "Host: $TS_HOSTNAME" >> $GITHUB_STEP_SUMMARY
+          echo "IPv4: $IP4" >> $GITHUB_STEP_SUMMARY
+          echo "Connect: $IP4:5901" >> $GITHUB_STEP_SUMMARY
+          echo "User: $VNC_USER" >> $GITHUB_STEP_SUMMARY
+          echo "Pass: $VNC_PASS" >> $GITHUB_STEP_SUMMARY
+
+      - name: ⏳ Keep alive
+        run: |
+          MINS=${{ steps.cfg.outputs.runtime }}
+          END_TIME=$(( $(date +%s) + MINS * 60 ))
+          while [ $(date +%s) -lt $END_TIME ]; do
+            LEFT=$(( (END_TIME - $(date +%s)) / 60 ))
+            echo "VNC alive... ($LEFT min left)"
+            sleep 60
+          done
+
+      - name: 🧹 PURGE any devices containing 'bullet' (exit)
+        if: always()
+        run: |
+          TN_ENCODED=$(jq -Rr @uri <<< "${{ steps.cfg.outputs.tailnet }}")
+          API_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ENCODED/devices"
+          
+          DEVICES=$(curl -s -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "$API_URL")
+          echo "$DEVICES" | jq -r '.devices[]? | select(.name | ascii_downcase | contains("bullet")) | .id' | while read ID; do
+            if [ -n "$ID" ]; then
+              curl -s -X DELETE -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/device/$ID" > /dev/null
+              echo "Deleted at exit: $ID"
+            fi
+          done
+
+      - name: 🔁 Dispatch workflow A
+        if: always()
+        run: |
+          LOOPS=${{ steps.cfg.outputs.loops }}
+          if [ "$LOOPS" -eq 1 ]; then echo "Loops finished; not dispatching."; exit 0; fi
+          if [ "$LOOPS" -gt 1 ]; then NEXT=$((LOOPS-1)); else NEXT=0; fi
+
+          curl -X POST \
+            -H "Authorization: Bearer ${{ steps.cfg.outputs.pat }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/linux-vnc-tailscale-A.yml/dispatches \
+            -d '{
+              "ref": "${{ github.ref_name }}",
+              "inputs": {
+                "ts_tailnet": "${{ steps.cfg.outputs.tailnet }}",
+                "ts_api_key": "${{ steps.cfg.outputs.apikey }}",
+                "ts_authkey": "${{ steps.cfg.outputs.authkey }}",
+                "gh_api_token": "${{ steps.cfg.outputs.pat }}",
+                "test_mode": false,
+                "runtime_minutes": "${{ steps.cfg.outputs.runtime }}",
+                "loops": "'$NEXT'"
+              }
+            }'
