@@ -1,4 +1,4 @@
-name: Ubuntu RDP via Tailscale (A)
+name: Linux VNC via Tailscale (A)
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ on:
         default: "0"
 
 concurrency:
-  group: tailscale-rdp-singleton
+  group: tailscale-vnc-singleton
   cancel-in-progress: false
 
 permissions:
@@ -41,189 +41,142 @@ defaults:
     shell: bash
 
 env:
-  RDP_USER: Bullettemporary
-  RDP_PASS: Bullet@12345
-  TS_HOSTNAME: bullet
+  VNC_USER: runner
+  VNC_PASS: Bullet@12345
+  TS_HOSTNAME: bullet-linux
 
 jobs:
-  rdp:
+  vnc:
     runs-on: ubuntu-latest
     timeout-minutes: 370
     steps:
-      - name: 🔧 Resolve inputs (safe)
+      - name: 🔧 Resolve inputs
         id: cfg
         run: |
-          function to_int_or() {
-            if [[ "$1" =~ ^[0-9]+$ ]]; then echo "$1"; else echo "$2"; fi
-          }
-          
           TAILNET="${{ inputs.ts_tailnet }}"
           APIKEY="${{ inputs.ts_api_key }}"
           AUTHKEY="${{ inputs.ts_authkey }}"
           PAT="${{ inputs.gh_api_token }}"
-          RAW_TEST="${{ inputs.test_mode }}"
-          
-          if [[ -z "$TAILNET" || -z "$APIKEY" || -z "$AUTHKEY" || -z "$PAT" ]]; then
-            echo "Missing required inputs"
-            exit 1
+          TEST_MODE="${{ inputs.test_mode }}"
+          RUNTIME="${{ inputs.runtime_minutes }}"
+          LOOPS="${{ inputs.loops }}"
+
+          if [ -z "$TAILNET" ] || [ -z "$APIKEY" ] || [ -z "$AUTHKEY" ] || [ -z "$PAT" ]; then
+            echo "Missing required inputs"; exit 1
           fi
+
+          RUNTIME=${RUNTIME:-355}
+          if [ "$TEST_MODE" = "true" ]; then RUNTIME=5; fi
+          if [ "$RUNTIME" -lt 6 ] && [ "$TEST_MODE" != "true" ]; then RUNTIME=355; fi
+          if [ "$RUNTIME" -gt 360 ]; then RUNTIME=355; fi
           
-          if [[ "$RAW_TEST" == "true" ]]; then
-            RUNTIME=5
-          else
-            RUNTIME=$(to_int_or "${{ inputs.runtime_minutes }}" 355)
-            if [[ "$RUNTIME" -lt 6 ]]; then RUNTIME=355; fi
-            if [[ "$RUNTIME" -gt 360 ]]; then RUNTIME=355; fi
-          fi
-          
-          LOOPS=$(to_int_or "${{ inputs.loops }}" 0)
-          if [[ "$LOOPS" -lt 0 ]]; then LOOPS=0; fi
-          
+          LOOPS=${LOOPS:-0}
+          if [ "$LOOPS" -lt 0 ]; then LOOPS=0; fi
+
           echo "tailnet=$TAILNET" >> $GITHUB_OUTPUT
           echo "apikey=$APIKEY" >> $GITHUB_OUTPUT
           echo "authkey=$AUTHKEY" >> $GITHUB_OUTPUT
           echo "pat=$PAT" >> $GITHUB_OUTPUT
           echo "runtime=$RUNTIME" >> $GITHUB_OUTPUT
           echo "loops=$LOOPS" >> $GITHUB_OUTPUT
-          
-          echo "Resolved: test=$RAW_TEST, runtime=$RUNTIME, loops=$LOOPS"
+          echo "Resolved: test=$TEST_MODE, runtime=$RUNTIME, loops=$LOOPS"
 
-      - name: ⚙️ Install Tailscale & show version
+      - name: ⚙️ Install XFCE, VNC & jq
         run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscale version
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xfce4 xfce4-terminal dbus-x11 xorg jq curl \
+            tigervnc-standalone-server tigervnc-common tigervnc-tools
 
+          echo "${VNC_USER}:${VNC_PASS}" | sudo chpasswd
+          echo "${VNC_USER} ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/${VNC_USER}
 
-      - name: 🔐 Enable RDP user + Install XRDP/XFCE4
+          mkdir -p /home/${VNC_USER}/.vnc
+          echo ${VNC_PASS} | vncpasswd -f > /home/${VNC_USER}/.vnc/passwd
+          chmod 600 /home/${VNC_USER}/.vnc/passwd
+          chown -R ${VNC_USER}:${VNC_USER} /home/${VNC_USER}/.vnc
+
+          echo "startxfce4" > /home/${VNC_USER}/.xsession
+          chown ${VNC_USER}:${VNC_USER} /home/${VNC_USER}/.xsession
+
+      - name: ⚙️ Install Tailscale
         run: |
-          U="${{ env.RDP_USER }}"
-          P="${{ env.RDP_PASS }}"
-          
-          # Create user and assign password
-          if ! id -u "$U" > /dev/null 2>&1; then
-            sudo useradd -m -s /bin/bash "$U"
-            sudo usermod -aG sudo "$U"
-          fi
-          echo "$U:$P" | sudo chpasswd
-          
-          # Install lightweight desktop and xrdp
-          sudo apt-get update
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp dbus-x11
-          
-          # Fix failsafe session error and permission denied errors using sudo tee
-          echo "unset SESSION_MANAGER" | sudo tee /home/$U/.xsession > /dev/null
-          echo "unset DBUS_SESSION_BUS_ADDRESS" | sudo tee -a /home/$U/.xsession > /dev/null
-          echo "exec dbus-launch --exit-with-session startxfce4" | sudo tee -a /home/$U/.xsession > /dev/null
-          
-          sudo chown $U:$U /home/$U/.xsession
-          sudo adduser xrdp ssl-cert
-          sudo systemctl enable xrdp
-          sudo systemctl restart xrdp
-
+          curl -fsSL https://tailscale.com/install.sh | sudo sh
+          tailscale version
 
       - name: 🧹 PURGE any devices containing 'bullet' (startup)
         run: |
-          ENCODED_TAILNET=$(jq -rn --arg x "${{ steps.cfg.outputs.tailnet }}" '$x|@uri')
-          DEVICES=$(curl -s -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/tailnet/$ENCODED_TAILNET/devices")
+          TN_ENCODED=$(jq -Rr @uri <<< "${{ steps.cfg.outputs.tailnet }}")
+          API_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ENCODED/devices"
           
-          # Check if the response contains devices before looping
-          if echo "$DEVICES" | jq -e '.devices' > /dev/null; then
-            echo "$DEVICES" | jq -r '.devices[] | select(.name | test("bullet"; "i")) | .id' | while read -r dev_id; do
-              curl -s -X DELETE -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/device/$dev_id" > /dev/null
-              echo "Deleted device at start: $dev_id"
-            done
-          else
-            echo "No devices found or error in Tailscale API response."
-          fi
+          DEVICES=$(curl -s -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "$API_URL")
+          echo "$DEVICES" | jq -r '.devices[]? | select(.name | ascii_downcase | contains("bullet")) | .id' | while read ID; do
+            if [ -n "$ID" ]; then
+              curl -s -X DELETE -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/device/$ID" > /dev/null
+              echo "Deleted at start: $ID"
+            fi
+          done
 
-      - name: 🔗 Tailscale up (hostname=bullet) + show IP/FQDN/DERP
+      - name: 🔗 Tailscale up + Start VNC
         id: up
         run: |
-          sudo tailscale logout 2>/dev/null || true
-          sudo tailscale up --authkey "${{ steps.cfg.outputs.authkey }}" --hostname "${{ env.TS_HOSTNAME }}" --accept-routes --accept-dns=false
+          sudo tailscale up --authkey "${{ steps.cfg.outputs.authkey }}" --hostname "${TS_HOSTNAME}" --accept-routes --accept-dns=false
           sleep 2
           
-          IP4=$(sudo tailscale ip -4 | head -n 1)
-          STATUS=$(sudo tailscale status --json)
-          FQDN=$(echo "$STATUS" | jq -r '.Self.DNSName')
-          DERP=$(echo "$STATUS" | jq -r '.Self.DERP')
-          
-          echo "ip4=$IP4" >> $GITHUB_OUTPUT
-          echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
-          echo "derp=$DERP" >> $GITHUB_OUTPUT
-          
-          echo "### RDP Ubuntu (A)
-          Host: ${{ env.TS_HOSTNAME }}
-          IPv4: $IP4
-          MagicDNS: $FQDN
-          DERP: $DERP
-          User: ${{ env.RDP_USER }}
-          Pass: ${{ env.RDP_PASS }}" >> $GITHUB_STEP_SUMMARY
+          IP4=$(tailscale ip -4 | head -n1)
+          sudo -u ${VNC_USER} vncserver :1 -geometry 1280x800 -depth 24 -localhost no
+
+          echo "### VNC Linux (A)" >> $GITHUB_STEP_SUMMARY
+          echo "Host: $TS_HOSTNAME" >> $GITHUB_STEP_SUMMARY
+          echo "IPv4: $IP4" >> $GITHUB_STEP_SUMMARY
+          echo "Connect: $IP4:5901" >> $GITHUB_STEP_SUMMARY
+          echo "User: $VNC_USER" >> $GITHUB_STEP_SUMMARY
+          echo "Pass: $VNC_PASS" >> $GITHUB_STEP_SUMMARY
 
       - name: ⏳ Keep alive
         run: |
-          RUNTIME_MINS="${{ steps.cfg.outputs.runtime }}"
-          END_TIME=$(( $(date +%s) + (RUNTIME_MINS * 60) ))
-          
+          MINS=${{ steps.cfg.outputs.runtime }}
+          END_TIME=$(( $(date +%s) + MINS * 60 ))
           while [ $(date +%s) -lt $END_TIME ]; do
-            LEFT=$(( ($END_TIME - $(date +%s)) / 60 ))
-            echo "RDP alive... ($LEFT min left)"
+            LEFT=$(( (END_TIME - $(date +%s)) / 60 ))
+            echo "VNC alive... ($LEFT min left)"
             sleep 60
           done
 
       - name: 🧹 PURGE any devices containing 'bullet' (exit)
         if: always()
         run: |
-          ENCODED_TAILNET=$(jq -rn --arg x "${{ steps.cfg.outputs.tailnet }}" '$x|@uri')
-          DEVICES=$(curl -s -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/tailnet/$ENCODED_TAILNET/devices")
+          TN_ENCODED=$(jq -Rr @uri <<< "${{ steps.cfg.outputs.tailnet }}")
+          API_URL="https://api.tailscale.com/api/v2/tailnet/$TN_ENCODED/devices"
           
-          if echo "$DEVICES" | jq -e '.devices' > /dev/null; then
-            echo "$DEVICES" | jq -r '.devices[] | select(.name | test("bullet"; "i")) | .id' | while read -r dev_id; do
-              curl -s -X DELETE -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/device/$dev_id" > /dev/null
-              echo "Deleted device at exit: $dev_id"
-            done
-          fi
+          DEVICES=$(curl -s -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "$API_URL")
+          echo "$DEVICES" | jq -r '.devices[]? | select(.name | ascii_downcase | contains("bullet")) | .id' | while read ID; do
+            if [ -n "$ID" ]; then
+              curl -s -X DELETE -H "Authorization: Bearer ${{ steps.cfg.outputs.apikey }}" "https://api.tailscale.com/api/v2/device/$ID" > /dev/null
+              echo "Deleted at exit: $ID"
+            fi
+          done
 
-      - name: 🔁 Dispatch workflow B (instant, forever by default)
+      - name: 🔁 Dispatch workflow B
         if: always()
         run: |
-          LOOPS="${{ steps.cfg.outputs.loops }}"
-          if [ "$LOOPS" -eq 1 ]; then
-            echo "Loops finished; not dispatching."
-            exit 0
-          fi
-          
-          if [ "$LOOPS" -gt 1 ]; then
-            NEXT=$((LOOPS - 1))
-          else
-            NEXT=0
-          fi
-          
-          PAT="${{ steps.cfg.outputs.pat }}"
-          PAYLOAD=$(jq -n \
-            --arg ref "${{ github.ref_name }}" \
-            --arg tailnet "${{ steps.cfg.outputs.tailnet }}" \
-            --arg apikey "${{ steps.cfg.outputs.apikey }}" \
-            --arg authkey "${{ steps.cfg.outputs.authkey }}" \
-            --arg pat "$PAT" \
-            --arg runtime "${{ steps.cfg.outputs.runtime }}" \
-            --arg loops "$NEXT" \
-            '{
-              ref: $ref,
-              inputs: {
-                ts_tailnet: $tailnet,
-                ts_api_key: $apikey,
-                ts_authkey: $authkey,
-                gh_api_token: $pat,
-                test_mode: "false",
-                runtime_minutes: $runtime,
-                loops: $loops
-              }
-            }')
-          
-          curl -s -X POST \
-            -H "Authorization: Bearer $PAT" \
+          LOOPS=${{ steps.cfg.outputs.loops }}
+          if [ "$LOOPS" -eq 1 ]; then echo "Loops finished; not dispatching."; exit 0; fi
+          if [ "$LOOPS" -gt 1 ]; then NEXT=$((LOOPS-1)); else NEXT=0; fi
+
+          curl -X POST \
+            -H "Authorization: Bearer ${{ steps.cfg.outputs.pat }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/ubuntu-rdp-tailscale-B.yml/dispatches" \
-            -d "$PAYLOAD"
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/linux-vnc-tailscale-B.yml/dispatches \
+            -d '{
+              "ref": "${{ github.ref_name }}",
+              "inputs": {
+                "ts_tailnet": "${{ steps.cfg.outputs.tailnet }}",
+                "ts_api_key": "${{ steps.cfg.outputs.apikey }}",
+                "ts_authkey": "${{ steps.cfg.outputs.authkey }}",
+                "gh_api_token": "${{ steps.cfg.outputs.pat }}",
+                "test_mode": false,
+                "runtime_minutes": "${{ steps.cfg.outputs.runtime }}",
+                "loops": "'$NEXT'"
+              }
+            }'
