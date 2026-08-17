@@ -111,16 +111,15 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get install -y xfce4 xfce4-goodies xrdp
           
-          # Fix failsafe session error by correctly initializing D-Bus and XFCE
-          echo "unset SESSION_MANAGER" > /home/$U/.xsession
-          echo "unset DBUS_SESSION_BUS_ADDRESS" >> /home/$U/.xsession
-          echo "exec dbus-launch --exit-with-session startxfce4" >> /home/$U/.xsession
+          # Fix failsafe session error and permission denied errors using sudo tee
+          echo "unset SESSION_MANAGER" | sudo tee /home/$U/.xsession > /dev/null
+          echo "unset DBUS_SESSION_BUS_ADDRESS" | sudo tee -a /home/$U/.xsession > /dev/null
+          echo "exec dbus-launch --exit-with-session startxfce4" | sudo tee -a /home/$U/.xsession > /dev/null
           
           sudo chown $U:$U /home/$U/.xsession
           sudo adduser xrdp ssl-cert
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
-
 
 
       - name: 🧹 PURGE any devices containing 'bullet' (startup)
