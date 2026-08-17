@@ -417,9 +417,6 @@ jobs:
   
   
             Invoke-RestMethod -Method POST `
-  
-              -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/windows-rdp-tailscale-B.yml/dispatches" `
-  
-              -Headers @{ Authorization = "Bearer $token"; "Accept"="application/vnd.github+json" } `
-  
-              -Body $body
+            -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/windows-rdp-tailscale-B.yml/dispatches" `
+            -Headers @{ Authorization = "Bearer $token"; "Accept"="application/vnd.github+json" } `
+            -Body $body
