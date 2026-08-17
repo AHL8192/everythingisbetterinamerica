@@ -553,21 +553,21 @@ jobs:
           echo "VNC password applied successfully!"
 
           - name: Create desktop VNC launcher
-        run: |
-          DESKTOP_PATH="/home/${USERNAME}/Desktop"
-          SCRIPT_PATH="${DESKTOP_PATH}/Connect_VNC.sh"
-          mkdir -p "$DESKTOP_PATH"
-          cat <<EOF > "$SCRIPT_PATH"
-          if [ "${{ env.CONNECTION_TYPE }}" = "Tailscale" ]; then
-            vncviewer ${{ env.CONNECTION_IP }}:5900 -FullScreen -MenuKey F8 &
-          else
-            vncviewer localhost:5900 -FullScreen -MenuKey F8 &
-          fi
-          sleep 3 && wmctrl -r "VNC Viewer" -b add,above
-          EOF
-          chmod +x "$SCRIPT_PATH"
-          chown ${USERNAME}:${USERNAME} "$SCRIPT_PATH"
-          echo "Desktop launcher created at: $SCRIPT_PATH"
+            run: |
+              DESKTOP_PATH="/home/${USERNAME}/Desktop"
+              SCRIPT_PATH="${DESKTOP_PATH}/Connect_VNC.sh"
+              mkdir -p "$DESKTOP_PATH"
+              cat <<EOF > "$SCRIPT_PATH"
+              if [ "${{ env.CONNECTION_TYPE }}" = "Tailscale" ]; then
+                vncviewer ${{ env.CONNECTION_IP }}:5900 -FullScreen -MenuKey F8 &
+              else
+                vncviewer localhost:5900 -FullScreen -MenuKey F8 &
+              fi
+              sleep 3 && wmctrl -r "VNC Viewer" -b add,above
+              EOF
+              chmod +x "$SCRIPT_PATH"
+              chown ${USERNAME}:${USERNAME} "$SCRIPT_PATH"
+              echo "Desktop launcher created at: $SCRIPT_PATH"
 
       - name: Expose selected port with Tunnel
         if: ${{ github.event.inputs.connection_method == 'ngrok' || github.event.inputs.connection_method == 'bore' }}
