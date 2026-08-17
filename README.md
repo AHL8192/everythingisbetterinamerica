@@ -1,3 +1,5 @@
+THIS PROJECT IS FOR EDUCATIONAL PURPOSES ONLY
+-----------------------------------------------------
 FOR VM AND LINUX:
 Pass & User to Connect:
 runner
