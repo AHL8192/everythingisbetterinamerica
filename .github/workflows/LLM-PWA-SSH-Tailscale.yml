@@ -69,6 +69,21 @@ jobs:
           echo ">>> Installing Ollama..."
           curl -sSL https://ollama.com/install.sh | sh
           
+          echo ">>> Configuring Ollama CORS & Network Binding..."
+          # Create a drop-in override directory for the ollama service
+          sudo mkdir -p /etc/systemd/system/ollama.service.d
+          
+          # Inject the necessary environment variables
+          sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null << 'EOF'
+          [Service]
+          Environment="OLLAMA_HOST=0.0.0.0"
+          Environment="OLLAMA_ORIGINS=*"
+          EOF
+          
+          # Reload the daemon and apply the changes
+          sudo systemctl daemon-reload
+          sudo systemctl restart ollama
+          
           echo ">>> Version Check:"
           ollama --version
 
