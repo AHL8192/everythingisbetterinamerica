@@ -23,6 +23,10 @@ on:
         description: 'Add PotPlayer and AIMP (32s)'
         type: boolean
         default: true
+      social:
+        description: 'Add Telegram & Discord'
+        type: boolean
+        default: true
       optimize:
         description: 'Optimize windows performance (1m 46s)'
         type: boolean
@@ -37,6 +41,10 @@ on:
         default: true
       office:
         description: 'Add Microsoft Office (4m 8s)'
+        type: boolean
+        default: true
+      llm:
+        description: 'Add LLM Studio'
         type: boolean
         default: true
       vmware:
@@ -263,6 +271,21 @@ jobs:
         run: |
             winget install --id XP8BSBGQW2DKS0 -e --silent --accept-source-agreements --accept-package-agreements
             winget install --id 9PCLLLH15SMT -e --silent --accept-source-agreements --accept-package-agreements
+
+      - name: Install Telegram & Discord
+        shell: powershell
+        if: ${{ inputs.social }}
+        run: |
+            # Installing Telegram
+            winget install --id Telegram.TelegramDesktop -e --silent --accept-source-agreements --accept-package-agreements
+            # Installing Discord
+            winget install --id Discord.Discord -e --silent --accept-source-agreements --accept-package-agreements
+
+      - name: Install LLM Studio
+        shell: powershell
+        if: ${{ inputs.llm }}
+        run: |
+            winget install --id ElementLabs.LMStudio -e --silent --accept-source-agreements --accept-package-agreements
 
       
       - name: Optimize and Apply OOSU10
