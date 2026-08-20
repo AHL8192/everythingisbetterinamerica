@@ -24,7 +24,7 @@ on:
         type: boolean
         default: true
       social:
-        description: 'Add Telegram & Discord'
+        description: 'Add Telegram & Discord (1m 16s)'
         type: boolean
         default: true
       optimize:
@@ -44,7 +44,7 @@ on:
         type: boolean
         default: true
       llm:
-        description: 'Add LLM Studio'
+        description: 'Add LLM Studio (2m 7s)'
         type: boolean
         default: true
       vmware:
