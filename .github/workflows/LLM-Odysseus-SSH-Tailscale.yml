@@ -1,19 +1,19 @@
-name: Setup LLM Runner + Tailscale + Odysseus
+name: Setup LLM Runner, Odysseus + Tailscale
 
 on:
   workflow_dispatch:
     inputs:
       ollama_model:
-        description: 'Choose the Ollama model to run'
+        description: 'Choose a model from https://ollama.com/library'
         required: true
         default: 'llama3.1'
         type: string
-        
       install_odysseus:
-        description: 'Install Odysseus Self-Hosted AI Workspace?'
+        description: 'Install Odysseus WebUI? (When you open http://<TAILSCALE_IP>:7000 in your browser and log into Odysseus, navigate to Settings > Providers / Local Models, set the URL endpoint to http://host.docker.internal:11434 and it will instantly discover your active model.)'
         required: true
         default: true
         type: boolean
+
 
 permissions:
   contents: read
@@ -60,7 +60,7 @@ jobs:
           curl -fsSL https://tailscale.com/install.sh | sudo sh
           sudo tailscale up --authkey "${TAILSCALE_AUTHKEY}" --hostname "${TAILSCALE_HOSTNAME}"
 
-      - name: Install Ollama
+      - name: Install & Configure Ollama
         run: |
           echo ">>> Installing dependencies..."
           sudo apt update -y -qq
@@ -69,6 +69,12 @@ jobs:
           echo ">>> Installing Ollama..."
           curl -sSL https://ollama.com/install.sh | sh
           
+          echo ">>> Configuring Ollama host binding (0.0.0.0)..."
+          sudo mkdir -p /etc/systemd/system/ollama.service.d
+          echo -e '[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0"' | sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null
+          sudo systemctl daemon-reload
+          sudo systemctl restart ollama
+
           echo ">>> Version Check:"
           ollama --version
 
@@ -80,19 +86,36 @@ jobs:
           echo ">>> Starting interactive session in tmux background..."
           sudo -u ${USERNAME} tmux new-session -d -s llm_session "ollama run ${MODEL}"
 
-      - name: Install and Run Odysseus
-        if: inputs.install_odysseus == true
+      - name: Install Odysseus
+        if: ${{ inputs.install_odysseus == 'true' || inputs.install_odysseus == true }}
         run: |
-          echo ">>> Cloning Odysseus..."
-          git clone https://github.com/odysseus-dev/odysseus.git /home/${USERNAME}/odysseus
-          cd /home/${USERNAME}/odysseus
-          
-          echo ">>> Setting up environment..."
+          echo ">>> Cloning Odysseus repository..."
+          git clone https://github.com/pewdiepie-archdaemon/odysseus.git
+          cd odysseus
           cp .env.example .env
-          sudo chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/odysseus
           
-          echo ">>> Starting Odysseus container..."
-          sudo docker compose up -d --build
+          echo ">>> Configuring Odysseus environment..."
+          echo "APP_BIND=0.0.0.0" >> .env
+          
+          # Enables container-to-host gateway communication on Linux
+          cat << 'EOF' > docker-compose.override.yml
+          services:
+            odysseus:
+              extra_hosts:
+                - "host.docker.internal:host-gateway"
+          EOF
+          
+          echo ">>> Building and starting Odysseus (Docker)..."
+          docker compose up -d --build
+          
+          echo ">>> Waiting for Odysseus to initialize..."
+          sleep 15
+          
+          ODYSSEUS_PWD=$(docker compose logs odysseus | grep -i 'Temporary password' | awk '{print $NF}' | tail -n 1)
+          if [ -z "$ODYSSEUS_PWD" ]; then
+             ODYSSEUS_PWD="Could not extract. Run 'docker compose logs odysseus | grep -i password' via SSH."
+          fi
+          echo "ODYSSEUS_PWD=${ODYSSEUS_PWD}" >> $GITHUB_ENV
 
       - name: Show Connection Info
         run: |
@@ -102,6 +125,16 @@ jobs:
           echo "USERNAME: ${USERNAME}"
           echo "PASSWORD: ${PASSWORD}"
           echo
+          
+          if [ "${{ inputs.install_odysseus }}" = "true" ]; then
+            echo ">>> Odysseus WebUI Access:"
+            echo "    URL: http://${TAILSCALE_IP}:7000"
+            echo "    Admin Password: ${ODYSSEUS_PWD}"
+            echo
+            echo "    (In Odysseus settings, set local model endpoint to: http://host.docker.internal:11434)"
+            echo
+          fi
+          
           echo ">>> Connect via SSH (Ollama will auto-launch):"
           echo "    ssh -o StrictHostKeyChecking=no ${USERNAME}@${TAILSCALE_IP}"
           echo
@@ -110,20 +143,6 @@ jobs:
           echo
           echo ">>> To return to Ollama later, type:"
           echo "    tmux attach -t llm_session"
-          echo
-          
-          if [ "${{ inputs.install_odysseus }}" = "true" ]; then
-            echo "========================================="
-            echo "=== ODYSSEUS AI WORKSPACE IS RUNNING ==="
-            echo "========================================="
-            echo ">>> Access the Web UI at:"
-            echo "    http://${TAILSCALE_IP}:7000"
-            echo
-            echo ">>> To get your first admin password, run this command inside the SSH session:"
-            echo "    cd /home/${USERNAME}/odysseus && sudo docker compose logs odysseus | grep -i password"
-            echo "========================================="
-          fi
-          
           echo
           echo ">>> Keeping runner alive..."
           tail -f /dev/null
