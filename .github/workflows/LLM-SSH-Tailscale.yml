@@ -40,11 +40,10 @@ jobs:
 
       - name: Configure Auto-Attach for SSH
         run: |
-          echo ">>> Adding tmux auto-attach to .bashrc..."
-          cat << 'EOF' >> ~/.bashrc
-          
+          echo ">>> Adding tmux auto-attach to profile.d..."
+          sudo tee /etc/profile.d/99-tmux-autoattach.sh > /dev/null << 'EOF'
           # Auto-attach to Ollama tmux session if connecting via SSH
-          if [[ -z "$TMUX" ]] && [[ -n "$SSH_CONNECTION" ]]; then
+          if [ -z "$TMUX" ] && [ -n "$SSH_CONNECTION" ]; then
               tmux attach-session -t llm_session 2>/dev/null || true
           fi
           EOF
