@@ -9,7 +9,7 @@ on:
         default: 'llama3.1'
         type: string
       install_odysseus:
-        description: 'Install Odysseus WebUI? (When you open http://<TAILSCALE_IP>:7000 in your browser and log into Odysseus, navigate to Settings > Providers / Local Models, set the URL endpoint to http://host.docker.internal:11434 and it will instantly discover your active model.)'
+        description: 'Install Odysseus WebUI? (When you open http://<TAILSCALE_IP>:7000 in your browser and log into Odysseus, navigate to Settings > Providers / Local Models, set the URL endpoint to http://host.docker.internal:11434/v1 and it will instantly discover your active model.)'
         required: true
         default: true
         type: boolean
@@ -131,7 +131,7 @@ jobs:
             echo "    URL: http://${TAILSCALE_IP}:7000"
             echo "    Admin Password: ${ODYSSEUS_PWD}"
             echo
-            echo "    (In Odysseus settings, set local model endpoint to: http://host.docker.internal:11434)"
+            echo "    (In Odysseus settings, set local model endpoint to: http://host.docker.internal:11434/v1)"
             echo
           fi
           
