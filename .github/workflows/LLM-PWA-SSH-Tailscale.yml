@@ -1,0 +1,119 @@
+name: Setup LLM + PWA Web App + Tailscale
+
+on:
+  workflow_dispatch:
+    inputs:
+      ollama_model:
+        description: 'Choose a model from https://ollama.com/library'
+        required: true
+        default: 'llama3.1'
+        type: string
+      enable_pwa_app:
+        description: 'Enable llama.app Web UI?'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  setup-llm-pwa-runner:
+    runs-on: ubuntu-latest
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      USERNAME: runner
+      PASSWORD: runner
+      TAILSCALE_HOSTNAME: gh-llm-pwa-${{ github.run_id }}
+      MODEL: ${{ inputs.ollama_model }}
+      ENABLE_PWA: ${{ inputs.enable_pwa_app }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure runner user has sudo + password
+        run: |
+          echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
+          echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/${USERNAME}
+
+      - name: Install OpenSSH server & Tmux
+        run: |
+          echo ">>> Installing OpenSSH & Tmux..."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server tmux
+          sudo systemctl enable ssh
+          sudo systemctl restart ssh
+
+      - name: Configure Auto-Attach for SSH
+        run: |
+          echo ">>> Adding tmux auto-attach to profile.d..."
+          sudo tee /etc/profile.d/99-tmux-autoattach.sh > /dev/null << 'EOF'
+          # Auto-attach to Ollama tmux session if connecting via SSH
+          if [ -z "$TMUX" ] && [ -n "$SSH_CONNECTION" ]; then
+              tmux attach-session -t llm_session 2>/dev/null || true
+          fi
+          EOF
+
+      - name: Install Tailscale
+        run: |
+          echo ">>> Installing Tailscale..."
+          curl -fsSL https://tailscale.com/install.sh | sudo sh
+          sudo tailscale up --authkey "${TAILSCALE_AUTHKEY}" --hostname "${TAILSCALE_HOSTNAME}"
+
+      - name: Install Ollama
+        run: |
+          echo ">>> Installing dependencies..."
+          sudo apt update -y -qq
+          sudo apt install curl wget -y -qq
+          
+          echo ">>> Installing Ollama..."
+          curl -sSL https://ollama.com/install.sh | sh
+          
+          echo ">>> Version Check:"
+          ollama --version
+
+      - name: Pull and Background Model
+        run: |
+          echo ">>> Pulling model: ${MODEL}..."
+          ollama pull ${MODEL}
+
+          echo ">>> Starting interactive CLI session in tmux background..."
+          sudo -u ${USERNAME} tmux new-session -d -s llm_session "ollama run ${MODEL}"
+
+      - name: Install and Launch llama.app (Web UI)
+        if: ${{ inputs.enable_pwa_app }}
+        run: |
+          echo ">>> Installing llama.app..."
+          curl -LsSf https://llama.app/install.sh | sh
+          
+          echo ">>> Launching llama.app Web UI server in tmux background..."
+          LLAMA_BIN="$HOME/.llama-app/llama"
+          if [ ! -f "$LLAMA_BIN" ]; then
+            LLAMA_BIN="$HOME/.local/bin/llama"
+          fi
+          if [ ! -f "$LLAMA_BIN" ]; then
+            LLAMA_BIN="llama"
+          fi
+
+          # Launch web server on port 8080 bound to all network interfaces
+          sudo -u ${USERNAME} tmux new-session -d -s webapp_session "$LLAMA_BIN serve --host 0.0.0.0 --port 8080"
+
+      - name: Show Connection Info
+        run: |
+          TAILSCALE_IP=$(tailscale ip -4 | head -n1)
+          echo "=== CONNECTION & ACCESS INFO ==="
+          echo "Tailscale IP: ${TAILSCALE_IP}"
+          echo "Username:     ${USERNAME}"
+          echo "Password:     ${PASSWORD}"
+          echo
+          echo ">>> Connect via SSH:"
+          echo "    ssh -o StrictHostKeyChecking=no ${USERNAME}@${TAILSCALE_IP}"
+          echo
+          if [ "${ENABLE_PWA}" = "true" ]; then
+            echo "=== LLAMA.APP WEB UI (PWA) ==="
+            echo "URL: http://${TAILSCALE_IP}:8080"
+            echo "To inspect Web UI server logs via SSH: tmux attach -t webapp_session"
+            echo
+          fi
+          echo ">>> Keeping runner alive..."
+          tail -f /dev/null
