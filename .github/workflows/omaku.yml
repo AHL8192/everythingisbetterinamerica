@@ -1,0 +1,91 @@
+name: Setup GNOME Runner + Omakub + Tailscale + xRDP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup-gui-runner:
+    runs-on: ubuntu-24.04
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      USERNAME: runner
+      PASSWORD: runner
+      TAILSCALE_HOSTNAME: gh-gnome-xrdp-${{ github.run_id }}
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure runner user has sudo
+        run: |
+          echo "${USERNAME}:${PASSWORD}" | sudo chpasswd
+          echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/${USERNAME}
+
+      - name: Install GNOME Desktop, Xvfb, and xRDP
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            gnome-session gnome-terminal nautilus xorg dbus-x11 \
+            xvfb xrdp
+
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+          sudo adduser ${USERNAME} ssl-cert
+
+      - name: Configure Smart Mock for Gum (Interactive CLI)
+        run: |
+          sudo mkdir -p /usr/local/bin
+          sudo tee /usr/local/bin/gum > /dev/null << 'EOF'
+          #!/bin/bash
+          subcmd="$1"
+          shift
+          case "$subcmd" in
+            choose)
+              # Print all selectable options so Omakub installs all languages/apps
+              for arg in "$@"; do
+                if [[ "$arg" != -* ]]; then
+                  echo "$arg"
+                fi
+              done
+              ;;
+            input)
+              # Return a default value for Git name/email prompts
+              echo "CI Runner"
+              ;;
+            confirm)
+              # Auto-confirm all YES/NO prompts
+              exit 0
+              ;;
+            *)
+              exit 0
+              ;;
+          esac
+          EOF
+          sudo chmod +x /usr/local/bin/gum
+
+      - name: Run Unattended Omakub Installation
+        run: |
+          # Start virtual display for GNOME gsettings
+          Xvfb :99 -screen 0 1920x1080x24 &
+          export DISPLAY=:99
+
+          # Run Omakub installer in a DBus session
+          yes "" | dbus-run-session bash -c "$(wget -qO- https://raw.githubusercontent.com/basecamp/omakub/stable/boot.sh)"
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sudo sh
+          sudo tailscale up --authkey "${TAILSCALE_AUTHKEY}" --hostname "${TAILSCALE_HOSTNAME}"
+
+      - name: Show RDP Connection Info
+        run: |
+          TAILSCALE_IP=$(tailscale ip -4 | head -n1)
+          echo "=== RDP CONNECTION INFO ==="
+          echo "USERNAME: ${USERNAME}"
+          echo "PASSWORD: ${PASSWORD}"
+          echo "Connect with any RDP client to: ${TAILSCALE_IP}"
+          echo ">>> Keeping runner alive..."
+          tail -f /dev/null
