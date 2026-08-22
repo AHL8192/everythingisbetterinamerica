@@ -205,7 +205,7 @@ jobs:
             }
           } catch { Write-Warning "Startup purge failed: $_" }
 
-      - name: 🔗 Tailscale Up (Static Hostname: bullet)
+      - name: TAILSCALE
         id: up
         run: |
           $ts = "C:\Program Files\Tailscale\tailscale.exe"
