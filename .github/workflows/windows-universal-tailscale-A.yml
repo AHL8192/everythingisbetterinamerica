@@ -138,7 +138,7 @@ env:
 jobs:
   universal-runner:
     runs-on: ${{ inputs.os_version }}
-    timeout-minutes: 370
+    timeout-minutes: 350
     steps:
       - name: 🔧 Resolve Inputs & Configuration
         id: cfg
