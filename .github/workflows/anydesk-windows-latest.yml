@@ -10,43 +10,43 @@ on:
       dark:
         description: 'Dark Mode (7s)'
         type: boolean
-        default: true
+        default: false
       store:
         description: 'Add Microsoft Store (23s)'
         type: boolean
-        default: true
+        default: false
       vscode:
         description: 'Add vscode (1m 19s)'
         type: boolean
-        default: true
+        default: false
       media:
         description: 'Add PotPlayer and AIMP (32s)'
         type: boolean
-        default: true
+        default: false
       social:
         description: 'Add Telegram & Discord (1m 16s)'
         type: boolean
-        default: true
+        default: false
       optimize:
         description: 'Optimize windows performance (1m 46s)'
         type: boolean
-        default: true
+        default: false
       rar:
         description: 'Add WinRAR (14s)'
         type: boolean
-        default: true
+        default: false
       qbit:
         description: 'Add qbittorrent (9s)'
         type: boolean
-        default: true
+        default: false
       office:
         description: 'Add Microsoft Office (4m 8s)'
         type: boolean
-        default: true
+        default: false
       llm:
         description: 'Add LLM Studio (2m 7s)'
         type: boolean
-        default: true
+        default: false
       vmware:
         description: 'Add VMware Workstation Pro (6m 24s)'
         type: boolean
