@@ -15,79 +15,6 @@ on:
       gh_api_token:
         description: "GitHub Personal Access Token (classic; scopes: repo, workflow)"
         required: true
-      os_version:
-        description: "OS Version (Windows 11 = 2022, Windows 10 = 2019)"
-        type: choice
-        options:
-          - windows-2022
-          - windows-2019
-        default: windows-2022
-      connection_type:
-        description: "Connection Protocol"
-        type: choice
-        options:
-          - RDP
-          - AnyDesk
-          - RustDesk
-          - Avica
-          - VNC
-        default: RDP
-      audio:
-        description: 'Install VB-Cable Audio Driver'
-        type: boolean
-        default: true
-      dark:
-        description: 'Dark Mode'
-        type: boolean
-        default: true
-      store:
-        description: 'Add Microsoft Store'
-        type: boolean
-        default: true
-      vscode:
-        description: 'Add vscode'
-        type: boolean
-        default: true
-      media:
-        description: 'Add PotPlayer and AIMP'
-        type: boolean
-        default: true
-      social:
-        description: 'Add Telegram & Discord'
-        type: boolean
-        default: true
-      optimize:
-        description: 'Optimize windows performance'
-        type: boolean
-        default: true
-      rar:
-        description: 'Add WinRAR'
-        type: boolean
-        default: true
-      qbit:
-        description: 'Add qbittorrent'
-        type: boolean
-        default: true
-      office:
-        description: 'Add Microsoft Office'
-        type: boolean
-        default: true
-      llm:
-        description: 'Add LLM Studio'
-        type: boolean
-        default: true
-      vmware:
-        description: 'Add VMware Workstation Pro'
-        type: boolean
-        default: false
-      ninite_bool:
-        description: 'Add More Apps (Ninite)'
-        type: boolean
-        default: false
-      ninite_url:
-        description: 'Ninite custom installer link'
-        required: false
-        type: string
       test_mode:
         description: "Run 5-minute test loop"
         type: boolean
@@ -100,7 +27,64 @@ on:
         description: "How many handoffs (0 = infinite)"
         required: false
         default: "0"
+      audio:
+        description: 'Install VB-Cable Audio Driver (14s)'
+        type: boolean
+        default: true
+      dark:
+        description: 'Dark Mode (7s)'
+        type: boolean
+        default: false
+      store:
+        description: 'Add Microsoft Store (23s)'
+        type: boolean
+        default: false
+      vscode:
+        description: 'Add vscode (1m 19s)'
+        type: boolean
+        default: false
+      media:
+        description: 'Add PotPlayer and AIMP (32s)'
+        type: boolean
+        default: false
+      social:
+        description: 'Add Telegram & Discord (1m 16s)'
+        type: boolean
+        default: false
+      optimize:
+        description: 'Optimize windows performance (1m 46s)'
+        type: boolean
+        default: false
+      rar:
+        description: 'Add WinRAR (14s)'
+        type: boolean
+        default: false
+      qbit:
+        description: 'Add qbittorrent (9s)'
+        type: boolean
+        default: false
+      office:
+        description: 'Add Microsoft Office (4m 8s)'
+        type: boolean
+        default: false
+      llm:
+        description: 'Add LLM Studio (2m 7s)'
+        type: boolean
+        default: false
+      vmware:
+        description: 'Add VMware Workstation Pro (6m 24s)'
+        type: boolean
+        default: false
+      ninite_bool:
+        description: 'Add More Apps - Open https://ninite.com/ to choose your apps.'
+        type: boolean
+        default: false
+      ninite_url:
+        description: 'Give us a direct link to the customized installer from Ninite.'
+        required: false
+        type: string
 
+  # Optional backup: start B when A completes
   workflow_run:
     workflows: ["Windows RDP via Tailscale (A)"]
     types: [completed]
@@ -118,16 +102,16 @@ defaults:
     shell: pwsh
 
 env:
-  SYS_USER: ahl8192
-  SYS_PASS: ahl8192
-  TS_HOSTNAME: ahl8192
+  RDP_USER: Bullettemporary
+  RDP_PASS: Bullet@12345
+  TS_HOSTNAME: bullet
 
 jobs:
   rdp:
-    runs-on: ${{ inputs.os_version }}
+    runs-on: windows-2022
     timeout-minutes: 370
     steps:
-      - name: 🔧 Resolve inputs
+      - name: 🔧 Resolve inputs (safe)
         id: cfg
         env:
           RAW_TAILNET:  ${{ inputs.ts_tailnet }}
@@ -153,15 +137,15 @@ jobs:
             if ($runtime -gt 360) { $runtime = 355 }
             $loops = ToIntOr $env:RAW_LOOPS 0
             if ($loops -lt 0) { $loops = 0 }
-            
             "tailnet=$tailnet" | Out-File -Append $env:GITHUB_OUTPUT
             "apikey=$apiKey"   | Out-File -Append $env:GITHUB_OUTPUT
             "authkey=$authKey" | Out-File -Append $env:GITHUB_OUTPUT
             "pat=$pat"         | Out-File -Append $env:GITHUB_OUTPUT
             "runtime=$runtime" | Out-File -Append $env:GITHUB_OUTPUT
             "loops=$loops"     | Out-File -Append $env:GITHUB_OUTPUT
+            Write-Host "Resolved: test=$isTest, runtime=$runtime, loops=$loops"
 
-      - name: ⚙️ Install Tailscale (if missing)
+      - name: ⚙️ Install Tailscale (if missing) & show version
         run: |
             $exe = "C:\Program Files\Tailscale\tailscale.exe"
             if (-not (Test-Path $exe)) {
@@ -171,10 +155,11 @@ jobs:
               Start-Process -FilePath $dst -ArgumentList "/quiet" -Wait
             }
             Start-Service Tailscale -ErrorAction SilentlyContinue
+            & "C:\Program Files\Tailscale\tailscale.exe" version
 
-      - name: 🔐 Enable RDP & Create Local User
+      - name: 🔐 Enable RDP user + firewall
         run: |
-            $u="${{ env.SYS_USER }}"; $p="${{ env.SYS_PASS }}"
+            $u="${{ env.RDP_USER }}"; $p="${{ env.RDP_PASS }}"
             $sec = ConvertTo-SecureString $p -AsPlainText -Force
             if (-not (Get-LocalUser -Name $u -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name $u -Password $sec -AccountNeverExpires
@@ -187,19 +172,26 @@ jobs:
             Set-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name fDenyTSConnections -Value 0
             Enable-NetFirewallRule -DisplayGroup "Remote Desktop" | Out-Null
 
-      - name: 🧹 PURGE tailnet devices containing ahl8192 (startup)
+      - name: 🧹 PURGE any devices containing 'bullet' (startup)
         run: |
             $hdr = @{ Authorization = "Bearer ${{ steps.cfg.outputs.apikey }}" }
             $tn  = [uri]::EscapeDataString("${{ steps.cfg.outputs.tailnet }}")
-            $match = { param($d) ($d.name -match '(?i)ahl8192') -or ($d.hostname -match '(?i)ahl8192') -or ($d.DNSName -match '(?i)ahl8192') }
+            $match = { param($d)
+              ($d.name -match '(?i)bullet') -or ($d.hostname -match '(?i)bullet') -or ($d.DNSName -match '(?i)bullet')
+            }
             try {
               $resp = Invoke-RestMethod -Method GET -Headers $hdr -Uri "https://api.tailscale.com/api/v2/tailnet/$tn/devices"
               foreach ($d in $resp.devices) {
-                if (& $match $d) { Invoke-RestMethod -Method DELETE -Headers $hdr -Uri ("https://api.tailscale.com/api/v2/device/{0}" -f $d.id) | Out-Null }
+                if (& $match $d) {
+                  try {
+                    Invoke-RestMethod -Method DELETE -Headers $hdr -Uri ("https://api.tailscale.com/api/v2/device/{0}" -f $d.id) | Out-Null
+                    Write-Host "Deleted at start: $($d.name)"
+                  } catch {}
+                }
               }
-            } catch {}
+            } catch { Write-Warning "Startup purge failed: $_" }
 
-      - name: 🔗 Tailscale up (hostname=ahl8192)
+      - name: 🔗 Tailscale up (hostname=bullet) + show IP/FQDN/DERP
         id: up
         run: |
             $ts = "C:\Program Files\Tailscale\tailscale.exe"
@@ -207,28 +199,52 @@ jobs:
             & $ts up --authkey "${{ steps.cfg.outputs.authkey }}" --hostname "${{ env.TS_HOSTNAME }}" --accept-routes --accept-dns=false
             Start-Sleep -Seconds 2
             $ip4 = (& $ts ip -4 | Select-Object -First 1)
-            "TAILSCALE_IP=$ip4"   | Out-File -Append $env:GITHUB_ENV
+            $status = & $ts status --json | ConvertFrom-Json
+            $fqdn = $status.Self.DNSName
+            $derp = $status.Self.DERP
+            "ip4=$ip4"   | Out-File -Append $env:GITHUB_OUTPUT
+            "fqdn=$fqdn" | Out-File -Append $env:GITHUB_OUTPUT
+            "derp=$derp" | Out-File -Append $env:GITHUB_OUTPUT
+            "### RDP (B)`nHost: $env:TS_HOSTNAME`nIPv4: $ip4`nMagicDNS: $fqdn`nDERP: $derp`nUser: $env:RDP_USER`nPass: $env:RDP_PASS" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
+      # -----------------------------------------------------------
+      # START OF INJECTED APP INSTALLATION FEATURES
+      # -----------------------------------------------------------
       - name: Add VB-Cable Audio Driver
+        shell: powershell
         if: ${{ inputs.audio }}
         run: |
           $url = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
           $zipPath = "$env:TEMP\VBCABLE_Driver_Pack45.zip"
           $extractPath = "$env:TEMP\VBCABLE"
+          Write-Host "Downloading VB-Cable..."
           Invoke-WebRequest -Uri $url -OutFile $zipPath
+          Write-Host "Extracting ZIP..."
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           Set-Location $extractPath
+          Write-Host "Trusting VB-Audio signature..."
           $sig = Get-AuthenticodeSignature ".\VBCABLE_Setup_x64.exe"
           if ($sig.SignerCertificate) {
               $store = New-Object System.Security.Cryptography.X509Certificates.X509Store "TrustedPublisher", "LocalMachine"
               $store.Open("ReadWrite")
               $store.Add($sig.SignerCertificate)
               $store.Close()
+              Write-Host "Certificate added to TrustedPublisher."
+          } else {
+              Write-Warning "Could not extract certificate. Installation might hang if Windows prompts for trust."
           }
-          Start-Process -FilePath ".\VBCABLE_Setup_x64.exe" -ArgumentList "-i", "-h" -Wait -PassThru
+          Write-Host "Installing VB-Cable driver..."
+          $process = Start-Process -FilePath ".\VBCABLE_Setup_x64.exe" -ArgumentList "-i", "-h" -Wait -PassThru
+          if ($process.ExitCode -eq 0) {
+              Write-Host "VB-Cable Installation completed successfully!"
+          } else {
+              Write-Error "Installation exited with code $($process.ExitCode)."
+              exit 1
+          }
 
       - name: Light Mode
-        if: ${{ inputs.dark == false }}
+        shell: powershell
+        if: ${{ !inputs.dark }}
         run: |
           $url = "https://raw.githubusercontent.com/AHL8192/special-octo-enigma/refs/heads/main/Wallpapers/Light.jpg"
           $outputPath = "$env:TEMP\github_wallpaper.jpg"
@@ -245,7 +261,8 @@ jobs:
           [Wallpaper]::SystemParametersInfo(0x0014, 0, $outputPath, 0x03)
 
       - name: Dark Mode
-        if: ${{ inputs.dark == true }}
+        shell: powershell
+        if: ${{ inputs.dark }}
         run: |
           Set-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'AppsUseLightTheme' -Value 0 -Type Dword
           Set-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'SystemUsesLightTheme' -Value 0 -Type Dword
@@ -264,39 +281,78 @@ jobs:
           Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
           [Wallpaper]::SystemParametersInfo(0x0014, 0, $outputPath, 0x03)
 
+      - name: Add VMware
+        shell: powershell
+        if: ${{ inputs.vmware }}
+        run: |
+          $url = "https://github.com/AHL8192/special-octo-enigma/releases/download/v1.0.1/OpmaticOceanicVersion1.0.1.exe"
+          $exePath = "$env:TEMP\vmware_installer.exe"
+          Write-Host "Downloading VMware Workstation..." -ForegroundColor Cyan
+          Invoke-WebRequest -Uri $url -OutFile $exePath -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+          if (-not (Test-Path $exePath) -or (Get-Item $exePath).Length -lt 10MB) {
+              Write-Error "Downloaded file is invalid or too small. Check the download link."
+              exit 1
+          }
+          Write-Host "Starting silent installation..." -ForegroundColor Cyan
+          $installArgs = '/s /v"/qn EULAS_AGREED=1 AUTOSOFTWAREUPDATE=0 DATACOLLECTION=0"'
+          $process = Start-Process -FilePath $exePath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -eq 0) {
+              Write-Host "VMware Workstation installed successfully." -ForegroundColor Green
+          } elseif ($process.ExitCode -eq 3010) {
+              Write-Host "Installation successful, but a system reboot is required." -ForegroundColor Yellow
+          } else {
+              Write-Warning "Installer completed with exit code: $($process.ExitCode)"
+          }
+          Write-Host "Cleaning up temporary files..." -ForegroundColor Cyan
+          Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
+          Write-Host "Setup complete!" -ForegroundColor Green
+
       - name: Add Store
+        shell: powershell
         if: ${{ inputs.store }}
         run: |
+          Write-Host "Triggering Microsoft Store installation..."
           wsreset -i
           $timeout = 120
           $timer = [Diagnostics.Stopwatch]::StartNew()
           while ($timer.Elapsed.TotalSeconds -lt $timeout) {
-              if (Get-AppxPackage -AllUsers -Name "*Microsoft.WindowsStore*") { break }
+              if (Get-AppxPackage -AllUsers -Name "*Microsoft.WindowsStore*") {
+                  Write-Host "Microsoft Store is successfully installed."
+                  break
+              }
+              Write-Host "Waiting for installation to complete... ($([math]::Round($timer.Elapsed.TotalSeconds))s elapsed)"
               Start-Sleep -Seconds 5
           }
           $timer.Stop()
-
+      
       - name: Install vscode
+        shell: powershell
         if: ${{ inputs.vscode }}
-        run: winget install --id Microsoft.VisualStudioCode -e --silent --accept-source-agreements --accept-package-agreements
+        run: |
+            winget install --id Microsoft.VisualStudioCode -e --silent --accept-source-agreements --accept-package-agreements
 
       - name: Install PotPlayer and AIMP
+        shell: powershell
         if: ${{ inputs.media }}
         run: |
             winget install --id XP8BSBGQW2DKS0 -e --silent --accept-source-agreements --accept-package-agreements
             winget install --id 9PCLLLH15SMT -e --silent --accept-source-agreements --accept-package-agreements
 
       - name: Install Telegram & Discord
+        shell: powershell
         if: ${{ inputs.social }}
         run: |
             winget install --id Telegram.TelegramDesktop -e --silent --accept-source-agreements --accept-package-agreements
             winget install --id Discord.Discord -e --silent --accept-source-agreements --accept-package-agreements
 
       - name: Install LLM Studio
+        shell: powershell
         if: ${{ inputs.llm }}
-        run: winget install --id ElementLabs.LMStudio -e --silent --accept-source-agreements --accept-package-agreements
+        run: |
+            winget install --id ElementLabs.LMStudio -e --silent --accept-source-agreements --accept-package-agreements
 
       - name: Optimize and Apply OOSU10
+        shell: powershell
         if: ${{ inputs.optimize }}
         run: |
             Set-MpPreference -DisableRealtimeMonitoring $true
@@ -308,44 +364,51 @@ jobs:
             $OOSU_cfg = "$env:TEMP\ooshutup10.cfg"
             Invoke-WebRequest -Uri "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe" -OutFile $OOSU_exe
             $oosuConfigContent = @"
+            ############################################################################
+            # This file was created with O&O ShutUp10++
+            # Recommended settings string
             P001 + P002 + P003 + P004 + P005 + P006 + P008 + P026 + P027 + P028 + P064 + P065 + P066 + P067 + P070 + P069 + P009 - P010 - P015 - P068 - P016 - A001 + A002 + A003 + A004 + A006 + A005 + P007 + P036 + P025 + P033 + P023 + P056 + P057 - P012 - P034 - P013 - P035 - P062 - P063 - P081 - P047 - P019 - P048 - P049 - P020 - P037 - P011 - P038 - P050 - P051 - P018 - P039 - P021 - P040 - P022 - P041 - P014 - P042 - P052 - P053 - P054 - P055 - P029 - P043 - P030 - P044 - P031 - P045 - P032 - P046 - P058 - P059 - P060 - P061 - P024 - S001 + S002 + S003 + S008 - E001 + E002 + E003 + E008 + E007 + E010 + E011 + E012 + E009 - E004 - E005 - E013 - E014 - E006 - Y001 + Y002 + Y003 + Y004 + Y005 + Y006 + Y007 + C012 + C002 + C013 + C007 + C008 + C009 + C010 + C011 + C014 + C015 + L001 + L003 + L004 - L005 - U001 + U004 + U005 + U006 + U007 + W001 + W011 +
             "@
             Set-Content -Path $OOSU_cfg -Value $oosuConfigContent
+            Write-Host "Applying O&O ShutUp10 privacy configurations..."
             Start-Process -FilePath $OOSU_exe -ArgumentList "`"$OOSU_cfg`" /quiet /nosrp" -Wait -NoNewWindow
+            Write-Host "Configurations applied successfully."
 
-      - name: Add VMware Workstation Pro
-        if: ${{ inputs.vmware }}
-        run: |
-          $url = "https://github.com/AHL8192/special-octo-enigma/releases/download/v1.0.1/OpmaticOceanicVersion1.0.1.exe"
-          $exePath = "$env:TEMP\vmware_installer.exe"
-          Invoke-WebRequest -Uri $url -OutFile $exePath -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-          $installArgs = '/s /v"/qn EULAS_AGREED=1 AUTOSOFTWAREUPDATE=0 DATACOLLECTION=0"'
-          Start-Process -FilePath $exePath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
-          Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
-
-      - name: Install WinRAR
+      - name: Install WinRAR via Chocolatey
         if: ${{ inputs.rar }}
         run: |
           choco install winrar -y
           "C:\Program Files\WinRAR" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Download and Install qBittorrent to D Drive
+        shell: pwsh
         if: ${{ inputs.qbit }}
         run: |
-          $releasesUrl = "https://api.github.com/repos/qbittorrent/qBittorrent/releases/latest"
-          $releaseInfo = Invoke-RestMethod -Uri $releasesUrl
-          $installerAsset = $releaseInfo.assets | Where-Object { $_.name -match "x64_setup\.exe$" } | Select-Object -First 1
-          $outputFile = "$env:TEMP\qbittorrent_setup.exe"
-          Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $outputFile
-          $cmdArgs = "/c `"$outputFile`" /S /D=D:\Program Files\qBittorrent"
-          Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -Wait -NoNewWindow
+                $releasesUrl = "https://api.github.com/repos/qbittorrent/qBittorrent/releases/latest"
+                $releaseInfo = Invoke-RestMethod -Uri $releasesUrl
+                $installerAsset = $releaseInfo.assets | Where-Object { $_.name -match "x64_setup\.exe$" } | Select-Object -First 1
+                $outputFile = "$env:TEMP\qbittorrent_setup.exe"
+                Write-Host "Downloading qBittorrent from: $($installerAsset.browser_download_url)"
+                Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $outputFile
+                Write-Host "Installing qBittorrent silently to D:\Program Files\qBittorrent..."
+                $cmdArgs = "/c `"$outputFile`" /S /D=D:\Program Files\qBittorrent"
+                Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -Wait -NoNewWindow
+                $qbitPath = "D:\Program Files\qBittorrent\qbittorrent.exe"
+                if (Test-Path $qbitPath) {
+                    Write-Host "Success: qBittorrent installed at $qbitPath"
+                } else {
+                    throw "Failed: qBittorrent executable not found at expected path."
+                }
 
-      - name: Install Office
+      - name: installing office
+        shell: powershell
         if: ${{ inputs.office }}
         run: |
           $url = 'https://c2rsetup.officeapps.live.com/c2r/download.aspx?ProductreleaseID=O365ProPlusRetail&platform=x64&language=en-us&version=O16GA'
           $exe = 'OfficeSetup.exe'
+          Write-Host "Downloading OfficeSetup from $url ..."
           Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+          Write-Host "Downloaded $exe ($(Get-Item $exe).Length) bytes"
           $cfg = 'configuration.xml'
           $xml = @'
           <Configuration>
@@ -358,159 +421,89 @@ jobs:
           </Configuration>
           '@
           $xml | Out-File -FilePath $cfg -Encoding UTF8
+          Write-Host "Wrote Click-to-Run configuration to $cfg"
+          if (-not (Test-Path $exe)) { throw "Installer not found: $exe" }
+          if (-not (Test-Path $cfg)) { throw "Config not found: $cfg" }
+          Write-Host "Starting silent installation (this can take several minutes)..."
           $proc = Start-Process -FilePath ".\$exe" -ArgumentList "/configure `"$cfg`"" -Wait -PassThru -NoNewWindow
+          Write-Host "Installer exited with code $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) { throw "Office installer failed with exit code $($proc.ExitCode)" }
+          Write-Host "Office installation completed successfully."
 
-      - name: Activate Office
+      - name: Activating Office
         if: ${{ inputs.office }}
         run: |
           git clone https://github.com/AHL8192/Microsoft-Activation-Scripts.git
           cd Microsoft-Activation-Scripts
           .\MAS\Separate-Files-Version\Activators\Ohook_Activation_AIO.cmd
+        shell: powershell
 
       - name: Installing Ninite
+        shell: powershell
         if: ${{ inputs.ninite_bool }}
         env:
           NINITE_URL: ${{ inputs.ninite_url }}
         run: |
-          if (-not $env:NINITE_URL) { Write-Error "URL empty."; exit 1 }
+          if (-not $env:NINITE_URL) {
+              Write-Error "The URL is empty. Please ensure you trigger this workflow manually (Run workflow) and provide the link."
+              exit 1
+          }
+          Write-Host "Downloading Ninite from: $env:NINITE_URL"
           Invoke-WebRequest -Uri $env:NINITE_URL -OutFile "NiniteInstaller.exe"
+          Write-Host "Starting Ninite installer in the background..."
           Start-Process -FilePath ".\NiniteInstaller.exe"
+          Write-Host "This step executes immediately while Ninite runs in the background."
+      # -----------------------------------------------------------
+      # END OF INJECTED APP INSTALLATION FEATURES
+      # -----------------------------------------------------------
 
-      - name: 🖥️ Setup AnyDesk
-        if: ${{ inputs.connection_type == 'AnyDesk' }}
-        shell: cmd
+      - name: ⏳ Keep alive
         run: |
-          powershell -Command "Invoke-WebRequest -Uri 'https://download.anydesk.com/AnyDesk.exe' -OutFile 'AnyDesk.exe'"
-          AnyDesk.exe --install "C:\AnyDesk" --start-with-win --silent
-          powershell -Command "Start-Sleep -Seconds 20"
-          set "adPath=C:\AnyDesk\AnyDesk.exe"
-          :START_ANYDESK
-          start "" "%adPath%" --start
-          powershell -Command "Start-Sleep -Seconds 10"
-          for /f "delims=" %%i in ('"%adPath%" --get-id') do set "ID=%%i"
-          if "%ID%"=="" goto START_ANYDESK
-          if "%ID%"=="0" goto START_ANYDESK
-          echo %SYS_PASS% | "%adPath%" --set-password _full_access
-          echo ANYDESK_ID=%ID% >> %GITHUB_ENV%
-
-      - name: 🖥️ Setup RustDesk
-        if: ${{ inputs.connection_type == 'RustDesk' }}
-        run: |
-          $rdUrl = "https://github.com/rustdesk/rustdesk/releases/download/1.3.1/rustdesk-1.3.1-x86_64.msi"
-          $installerPath = "$env:TEMP\rustdesk.msi"
-          Invoke-WebRequest -Uri $rdUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          & "C:\Program Files\RustDesk\rustdesk.exe" --password "${{ env.SYS_PASS }}"
-          Start-Sleep -Seconds 5
-          & "C:\Program Files\RustDesk\rustdesk.exe" --get-id | Out-File -FilePath "$env:TEMP\id.txt"
-          $rdID = (Get-Content "$env:TEMP\id.txt").Trim()
-          "RUSTDESK_ID=$rdID" | Out-File -Append $env:GITHUB_ENV
-          netsh advfirewall firewall add rule name="RustDesk-TCP" dir=in action=allow protocol=TCP localport=21115-21119
-          netsh advfirewall firewall add rule name="RustDesk-UDP" dir=in action=allow protocol=UDP localport=21116
-
-      - name: 🖥️ Setup Avica
-        if: ${{ inputs.connection_type == 'Avica' }}
-        id: ocr_engine
-        run: |
-          pip install requests
-          curl.exe -s -L -o AvicaLite.exe https://download.avica.com/AvicaLite_v8.0.8.9.exe
-          Start-Process -FilePath ".\AvicaLite.exe"
-          Start-Sleep -Seconds 15
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $Screen = [System.Windows.Forms.Screen]::PrimaryScreen
-          $Bitmap = New-Object System.Drawing.Bitmap($Screen.Bounds.Width, $Screen.Bounds.Height)
-          $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
-          $Graphics.CopyFromScreen($Screen.Bounds.X, $Screen.Bounds.Y, 0, 0, $Bitmap.Size)
-          $imgPath = "$env:USERPROFILE\Desktop\pic.png"
-          $Bitmap.Save($imgPath, [System.Drawing.Imaging.ImageFormat]::Png)
-          
-          $pythonScript = @"
-          import requests, os, sys
-          IMGUR_TOKEN = '0205418ed7afc732fb798302849561a71c82b7a4'
-          IMG_PATH = r'$imgPath'
-          if not os.path.exists(IMG_PATH): sys.exit('NO_IMAGE')
-          url = 'https://api.imgur.com/3/image'
-          headers = {'Authorization': f'Bearer {IMGUR_TOKEN}'}
-          with open(IMG_PATH, 'rb') as f:
-              r = requests.post(url, headers=headers, files={'image': f})
-          if r.status_code == 200:
-              pass
-          else:
-              sys.exit('UPLOAD_FAILED')
-          "@
-          Set-Content -Path "$env:TEMP\upload.py" -Value $pythonScript
-          python "$env:TEMP\upload.py"
-          
-          curl.exe -s -L -o screenshot.py https://gitlab.com/MR.English2008/avica/-/raw/main/OCR_Avica.py
-          $env:PYTHONWARNINGS="ignore"
-          cmd /c "python screenshot.py > nul 2>&1"
-
-      - name: 🖥️ Setup VNC
-        if: ${{ inputs.connection_type == 'VNC' }}
-        run: |
-          choco install tightvnc -y --installArguments "SET_USEVNCAUTHENTICATION=1 VALUE_OF_USEVNCAUTHENTICATION=1 SET_PASSWORD=1 VALUE_OF_PASSWORD=${{ env.SYS_PASS }}"
-          netsh advfirewall firewall add rule name="VNC" dir=in action=allow protocol=TCP localport=5900
-
-      - name: ⏳ Final Status & Keep Alive
-        run: |
-          $mins = [int]"${{ steps.cfg.outputs.runtime }}"
-          $end = (Get-Date).AddMinutes($mins)
-
-          Write-Host "========================================"
-          Write-Host "OS User: ${{ env.SYS_USER }}"
-          Write-Host "OS Pass: ${{ env.SYS_PASS }}"
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          
-          if ("${{ inputs.connection_type }}" -eq "AnyDesk") {
-              Write-Host "AnyDesk ID: $env:ANYDESK_ID"
-          } elseif ("${{ inputs.connection_type }}" -eq "RustDesk") {
-              Write-Host "RustDesk ID: $env:RUSTDESK_ID"
-          } elseif ("${{ inputs.connection_type }}" -eq "Avica") {
-              Write-Host "Avica ID: ${{ steps.ocr_engine.outputs.id }}"
-              Write-Host "Avica Pass: ${{ steps.ocr_engine.outputs.pass }}"
-          } elseif ("${{ inputs.connection_type }}" -eq "VNC") {
-              Write-Host "VNC Protocol Enabled on Port 5900"
-          } else {
-              Write-Host "RDP Protocol Enabled (Default)"
-          }
-          Write-Host "========================================"
-          
-          while ((Get-Date) -lt $end) {
-              $left = [int]([math]::Ceiling(($end - (Get-Date)).TotalMinutes))
-              Write-Host "Running... ($left min left) | Protocol: ${{ inputs.connection_type }}"
+            $mins=[int]"${{ steps.cfg.outputs.runtime }}"
+            $end=(Get-Date).AddMinutes($mins)
+            while((Get-Date) -lt $end){
+              $left=[int]([math]::Ceiling(($end-(Get-Date)).TotalMinutes))
+              Write-Host "RDP alive... ($left min left)"
               Start-Sleep -Seconds 60
-          }
+            }
 
-      - name: 🧹 PURGE tailnet devices containing ahl8192 (exit)
+      - name: 🧹 PURGE any devices containing 'bullet' (exit)
         if: always()
         run: |
             $hdr = @{ Authorization = "Bearer ${{ steps.cfg.outputs.apikey }}" }
             $tn  = [uri]::EscapeDataString("${{ steps.cfg.outputs.tailnet }}")
-            $match = { param($d) ($d.name -match '(?i)ahl8192') -or ($d.hostname -match '(?i)ahl8192') -or ($d.DNSName -match '(?i)ahl8192') }
+            $match = { param($d)
+              ($d.name -match '(?i)bullet') -or ($d.hostname -match '(?i)bullet') -or ($d.DNSName -match '(?i)bullet')
+            }
             try {
               $resp = Invoke-RestMethod -Method GET -Headers $hdr -Uri "https://api.tailscale.com/api/v2/tailnet/$tn/devices"
               foreach ($d in $resp.devices) {
-                if (& $match $d) { Invoke-RestMethod -Method DELETE -Headers $hdr -Uri ("https://api.tailscale.com/api/v2/device/{0}" -f $d.id) | Out-Null }
+                if (& $match $d) {
+                  try {
+                    Invoke-RestMethod -Method DELETE -Headers $hdr -Uri ("https://api.tailscale.com/api/v2/device/{0}" -f $d.id) | Out-Null
+                    Write-Host "Deleted at exit: $($d.name)"
+                  } catch {}
+                }
               }
-            } catch {}
+            } catch { Write-Warning "Exit purge failed: $_" }
 
-      - name: 🔁 Dispatch workflow A
+      - name: 🔁 Dispatch workflow A (instant, forever by default)
         if: always()
         run: |
             $loops=[int]"${{ steps.cfg.outputs.loops }}"
             if ($loops -eq 1) { Write-Host "Loops finished; not dispatching."; exit 0 }
             if ($loops -gt 1) { $next=$loops-1 } else { $next=0 }
-            
             $token="${{ steps.cfg.outputs.pat }}"
             $body=@{
               ref    = "${{ github.ref_name }}"
               inputs = @{
-                ts_tailnet      = "${{ inputs.ts_tailnet }}"
-                ts_api_key      = "${{ inputs.ts_api_key }}"
-                ts_authkey      = "${{ inputs.ts_authkey }}"
+                ts_tailnet      = "${{ steps.cfg.outputs.tailnet }}"
+                ts_api_key      = "${{ steps.cfg.outputs.apikey }}"
+                ts_authkey      = "${{ steps.cfg.outputs.authkey }}"
                 gh_api_token    = "$token"
-                os_version      = "${{ inputs.os_version }}"
-                connection_type = "${{ inputs.connection_type }}"
+                test_mode       = "false"
+                runtime_minutes = "${{ steps.cfg.outputs.runtime }}"
+                loops           = "$next"
                 audio           = "${{ inputs.audio }}"
                 dark            = "${{ inputs.dark }}"
                 store           = "${{ inputs.store }}"
@@ -525,12 +518,8 @@ jobs:
                 vmware          = "${{ inputs.vmware }}"
                 ninite_bool     = "${{ inputs.ninite_bool }}"
                 ninite_url      = "${{ inputs.ninite_url }}"
-                test_mode       = "false"
-                runtime_minutes = "${{ steps.cfg.outputs.runtime }}"
-                loops           = "$next"
               }
             } | ConvertTo-Json -Depth 5
-            
             Invoke-RestMethod -Method POST `
               -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/windows-rdp-tailscale-A.yml/dispatches" `
               -Headers @{ Authorization = "Bearer $token"; "Accept"="application/vnd.github+json" } `
