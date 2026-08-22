@@ -1,4 +1,4 @@
-name: windows-universal-tailscale B
+name: windows-universal-tailscale-B
 
 on:
   workflow_dispatch:
